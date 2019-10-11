@@ -1007,5 +1007,9 @@
 /* the signed version of size_t */
 #cmakedefine ssize_t ${ssize_t}
 
+
+#cmakedefine HAVE_STRUCT_POLLFD
+
 /* Define to 1 if you have the mach_absolute_time function. */
 #cmakedefine HAVE_MACH_ABSOLUTE_TIME 1
+

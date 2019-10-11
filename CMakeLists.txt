@@ -39,6 +39,12 @@
 # (From Daniel Stenberg) The cmake build selected to run gcc with -fPIC on my box while the plain configure script did not.
 # (From Daniel Stenberg) The gcc command line use neither -g nor any -O options. As a developer, I also treasure our configure scripts's --enable-debug option that sets a long range of "picky" compiler options.
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+if(POLICY CMP0042)
+	cmake_policy(SET CMP0042 NEW)
+endif()
+if(POLICY CMP0068)
+	cmake_policy(SET CMP0068 NEW)
+endif()
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake;${CMAKE_MODULE_PATH}")
 include(Utilities)
 include(Macros)
@@ -77,6 +83,7 @@ option(CURL_WERROR "Turn compiler warnings into errors" OFF)
 option(PICKY_COMPILER "Enable picky compiler options" ON)
 option(BUILD_CURL_EXE "Set to ON to build curl executable." ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(CURL_ENABLE_UNINSTALL "Set to ON to generate the uninstall target" ON)
 option(ENABLE_ARES "Set to ON to enable c-ares support" OFF)
 if(WIN32)
   option(CURL_STATIC_CRT "Set to ON to build libcurl with static CRT on Windows (/MT)." OFF)
@@ -128,8 +135,6 @@ set(CURL_LIBS "")
 if(ENABLE_ARES)
   set(USE_ARES 1)
   find_package(CARES REQUIRED)
-  list(APPEND CURL_LIBS ${CARES_LIBRARY})
-  set(CURL_LIBS ${CURL_LIBS} ${CARES_LIBRARY})
 endif()
 
 include(CurlSymbolHiding)
@@ -384,6 +389,30 @@ if(CMAKE_USE_MBEDTLS)
   include_directories(${MBEDTLS_INCLUDE_DIRS})
 endif()
 
+option(CMAKE_USE_WINSSL "Use WinSSL code. Experimental" OFF)
+mark_as_advanced(CMAKE_USE_WINSSL)
+
+set(USE_WINSSL OFF)
+
+if (CMAKE_USE_WINSSL)
+  set(USE_SCHANNEL ON)
+  set(USE_WINDOWS_SSPI ON)
+    set(USE_WINSSL ON)
+endif()
+
+option(CMAKE_USE_DARWINSSL "Use DarwinSSL code. Experimental" OFF)
+mark_as_advanced(CMAKE_USE_DARWINSSL)
+
+if (CMAKE_USE_DARWINSSL)
+	if (IS_DIRECTORY "/System/Library/Frameworks/Security.framework")
+		set(USE_DARWINSSL ON)
+		find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+		find_library(SECURITY_FRAMEWORK Security)
+		link_libraries(${COREFOUNDATION_FRAMEWORK} ${SECURITY_FRAMEWORK})
+		add_definitions(-DUSE_DARWINSSL=1)
+	endif()
+endif()
+
 option(USE_NGHTTP2 "Use Nghttp2 library" OFF)
 if(USE_NGHTTP2)
   find_package(NGHTTP2 REQUIRED)
@@ -497,6 +526,7 @@ endif()
 if(NOT CURL_DISABLE_LDAPS)
   check_include_file_concat("ldap_ssl.h" HAVE_LDAP_SSL_H)
   check_include_file_concat("ldapssl.h"  HAVE_LDAPSSL_H)
+  set(HAVE_LDAP_SSL HAVE_LDAP_SSL_H OR HAVE_LDAPSSL_H)
 endif()
 
 # Check for idn
@@ -542,7 +572,7 @@ if(CURL_BROTLI)
 endif()
 
 #libSSH2
-option(CMAKE_USE_LIBSSH2 "Use libSSH2" ON)
+option(CMAKE_USE_LIBSSH2 "Use libSSH2" OFF)
 mark_as_advanced(CMAKE_USE_LIBSSH2)
 set(USE_LIBSSH2 OFF)
 set(HAVE_LIBSSH2 OFF)
@@ -903,10 +933,10 @@ if(WIN32)
   if(ENABLE_INET_PTON)
     check_function_exists(inet_pton HAVE_INET_PTON)
     # _WIN32_WINNT_VISTA (0x0600)
-    add_definitions(-D_WIN32_WINNT=0x0600)
+#    add_definitions(-D_WIN32_WINNT=0x0600)
   else()
     # _WIN32_WINNT_WINXP (0x0501)
-    add_definitions(-D_WIN32_WINNT=0x0501)
+#    add_definitions(-D_WIN32_WINNT=0x0501)
   endif()
 else()
   check_function_exists(inet_pton HAVE_INET_PTON)
@@ -1098,6 +1128,10 @@ else()
 endif()
 set(CURL_PULL_STDINT_H ${HAVE_STDINT_H})
 set(CURL_PULL_INTTYPES_H ${HAVE_INTTYPES_H})
+
+if(USE_ARES)
+  list(APPEND CURL_LIBS ${CARES_LIBRARY} )
+endif()
 
 include(CMake/OtherTests.cmake)
 
@@ -1340,13 +1374,16 @@ if(MSVC_VERSION EQUAL 1600)
   endif()
 endif()
 
-if(NOT TARGET uninstall)
-  configure_file(
-      ${CMAKE_CURRENT_SOURCE_DIR}/CMake/cmake_uninstall.cmake.in
-      ${CMAKE_CURRENT_BINARY_DIR}/CMake/cmake_uninstall.cmake
-      IMMEDIATE @ONLY)
 
-  add_custom_target(uninstall
-      COMMAND ${CMAKE_COMMAND} -P
-      ${CMAKE_CURRENT_BINARY_DIR}/CMake/cmake_uninstall.cmake)
+if(CURL_ENABLE_UNINSTALL)
+	if(NOT TARGET uninstall)
+	  configure_file(
+		  ${CMAKE_CURRENT_SOURCE_DIR}/CMake/cmake_uninstall.cmake.in
+		  ${CMAKE_CURRENT_BINARY_DIR}/CMake/cmake_uninstall.cmake
+		  IMMEDIATE @ONLY)
+
+	  add_custom_target(uninstall
+		  COMMAND ${CMAKE_COMMAND} -P
+		  ${CMAKE_CURRENT_BINARY_DIR}/CMake/cmake_uninstall.cmake)
+	endif()
 endif()

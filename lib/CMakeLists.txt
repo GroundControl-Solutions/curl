@@ -1,4 +1,4 @@
-set(LIB_NAME libcurl)
+set(LIB_NAME libggcurl)
 
 if(BUILD_SHARED_LIBS)
   set(CURL_STATICLIB NO)
@@ -80,7 +80,8 @@ if(NOT BUILD_SHARED_LIBS)
     set_target_properties(${LIB_NAME} PROPERTIES INTERFACE_COMPILE_DEFINITIONS CURL_STATICLIB)
 endif()
 
-target_link_libraries(${LIB_NAME} ${CURL_LIBS})
+target_link_libraries(${LIB_NAME} PUBLIC ${CURL_LIBS})
+target_link_libraries(${LIB_NAME} PRIVATE ${version_rc})
 
 if(WIN32)
   add_definitions(-D_USRDLL)

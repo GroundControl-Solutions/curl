@@ -23,6 +23,7 @@
  ***************************************************************************/
 
 #include "conncache.h"
+#include "curl/multi.h"
 #include "psl.h"
 
 struct Curl_message {

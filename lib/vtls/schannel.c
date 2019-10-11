@@ -521,7 +521,7 @@ schannel_connect_step1(struct connectdata *conn, int sockindex)
                     "checks\n");
       }
       else {
-        schannel_cred.dwFlags |= SCH_CRED_REVOCATION_CHECK_CHAIN;
+        schannel_cred.dwFlags |= SCH_CRED_REVOCATION_CHECK_CHAIN | SCH_CRED_IGNORE_NO_REVOCATION_CHECK | SCH_CRED_IGNORE_REVOCATION_OFFLINE;
         infof(data, "schannel: checking server certificate revocation\n");
       }
     }
