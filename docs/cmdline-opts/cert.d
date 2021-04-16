@@ -4,6 +4,7 @@ Arg: <certificate[:password]>
 Help: Client certificate file and password
 Protocols: TLS
 See-also: cert-type key key-type
+Category: tls
 ---
 Tells curl to use the specified client certificate file when getting a file
 with HTTPS, FTPS or another SSL-based protocol. The certificate must be in
@@ -36,7 +37,7 @@ system or user keychain, or the path to a PKCS#12-encoded certificate and
 private key. If you want to use a file from the current directory, please
 precede it with "./" prefix, in order to avoid confusion with a nickname.
 
-(Schannel/WinSSL only) Client certificates must be specified by a path
+(Schannel only) Client certificates must be specified by a path
 expression to a certificate store. (Loading PFX is not supported; you can
 import it to a store first). You can use
 "<store location>\\<store name>\\<thumbprint>" to refer to a certificate
