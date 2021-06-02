@@ -39,10 +39,6 @@ list(APPEND HHEADERS
   ${CMAKE_CURRENT_BINARY_DIR}/curl_config.h
   )
 
-if(WIN32)
-  list(APPEND CSOURCES libcurl.rc)
-endif()
-
 # SET(CSOURCES
 # #  memdebug.c -not used
 # # nwlib.c - Not used
