@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,6 +20,7 @@
 #
 ###########################################################################
 include(CheckCSourceCompiles)
+include(CheckCXXSourceCompiles)
 # The begin of the sources (macros and includes)
 set(_source_epilogue "#undef inline")
 
@@ -49,143 +50,51 @@ endif()
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-check_cxx_source_compiles("${_source_epilogue}
+function(check_send_recv_type func var)
+  message(CHECK_START "Checking type of ${func} ${var}")
+  string(TOUPPER "${func}_TYPE_${var}" result_var_name)
+  foreach(type IN LISTS ARGN)
+    unset(check_send_recv_type_test CACHE)
+    # C++ includes don't work properly with curl, so define is_same ourselves
+    check_cxx_source_compiles("
+      ${_source_epilogue}
+      template<class,class>struct is_same{static constexpr bool value=false;};
+      template<class T>struct is_same<T,T>{static constexpr bool value=true;};
+      template <class Retv, class Arg1, class Arg2, class Arg3, class Arg4>
+      void check_args(Retv(${signature_call_conv} *r)(Arg1,Arg2,Arg3,Arg4)) {
+        static_assert(is_same<${var},${type}>::value, \"\");
+        r(0,0,0,0);
+      }
+      int main(void) {
+        check_args(&${func});
+      }"
+      check_send_recv_type_test)
+    if(check_send_recv_type_test)
+      message(CHECK_PASS "${type}")
+      set(${result_var_name} ${type} PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  message(CHECK_FAIL "<unknown>")
+  message(FATAL_ERROR "Could not determine type of ${func} ${var}")
+endfunction()
+
+check_c_source_compiles("${_source_epilogue}
 int main(void) {
     recv(0, 0, 0, 0);
     return 0;
 }" curl_cv_recv)
 if(curl_cv_recv)
-  if(NOT DEFINED curl_cv_func_recv_args OR "${curl_cv_func_recv_args}" STREQUAL "unknown")
-    set(curl_recv_test_head
-    "${_source_epilogue}
-    //C++ includes don't work properly with curl, so define is_same ourselves
-    template<class,class>struct is_same{static constexpr bool value=false;};
-    template<class T>struct is_same<T,T>{static constexpr bool value=true;};
-    template <class Ret, class Arg1, class Arg2, class Arg3, class Arg4>
-    void check_args(Ret(${signature_call_conv} *r)(Arg1,Arg2,Arg3,Arg4)) {
-      static_assert(is_same<")
-    set(curl_recv_test_tail
-    ">::value,\"\");
-      r(0,0,0,0);
-    }
-    int main() {
-      check_args(&recv);
-    }")
-
-    foreach(recv_retv "int" "ssize_t" )
-      unset(curl_cv_func_recv_test CACHE)
-      check_cxx_source_compiles("${curl_recv_test_head} Ret,${recv_retv} ${curl_recv_test_tail}" curl_cv_func_recv_test)
-      message(STATUS "Tested recv return type == ${recv_retv}")
-      if(curl_cv_func_recv_test)
-        set(RECV_TYPE_RETV "${recv_retv}")
-        break()
-      endif(curl_cv_func_recv_test)
-    endforeach(recv_retv)
-    if(NOT DEFINED RECV_TYPE_RETV)
-      message(FATAL_ERROR "Cannot determine recv return type")
-    endif()
-
-    foreach(recv_arg1 "SOCKET" "int")
-      unset(curl_cv_func_recv_test CACHE)
-      check_cxx_source_compiles("${curl_recv_test_head} Arg1,${recv_arg1} ${curl_recv_test_tail}" curl_cv_func_recv_test)
-      message(STATUS "Tested recv socket type == ${recv_arg1}")
-      if(curl_cv_func_recv_test)
-        set(RECV_TYPE_ARG1 "${recv_arg1}")
-        break()
-      endif(curl_cv_func_recv_test)
-    endforeach(recv_arg1)
-    if(NOT DEFINED RECV_TYPE_ARG1)
-      message(FATAL_ERROR "Cannot determine recv socket type")
-    endif()
-
-    foreach(recv_arg2 "void *" "char *")
-      unset(curl_cv_func_recv_test CACHE)
-      check_cxx_source_compiles("${curl_recv_test_head} Arg2,${recv_arg2} ${curl_recv_test_tail}" curl_cv_func_recv_test)
-      message(STATUS "Tested recv buffer type == ${recv_arg2}")
-      if(curl_cv_func_recv_test)
-        set(RECV_TYPE_ARG2 "${recv_arg2}")
-        break()
-      endif(curl_cv_func_recv_test)
-    endforeach(recv_arg2)
-    if(NOT DEFINED RECV_TYPE_ARG2)
-      message(FATAL_ERROR "Cannot determine recv buffer type")
-    endif()
-
-    foreach(recv_arg3 "size_t" "int" "socklen_t" "unsigned int")
-      unset(curl_cv_func_recv_test CACHE)
-      check_cxx_source_compiles("${curl_recv_test_head} Arg3,${recv_arg3} ${curl_recv_test_tail}" curl_cv_func_recv_test)
-      message(STATUS "Tested recv length type == ${recv_arg3}")
-      if(curl_cv_func_recv_test)
-        set(RECV_TYPE_ARG3 "${recv_arg3}")
-        break()
-      endif(curl_cv_func_recv_test)
-    endforeach(recv_arg3)
-    if(NOT DEFINED RECV_TYPE_ARG3)
-      message(FATAL_ERROR "Cannot determine recv length type")
-    endif()
-
-    foreach(recv_arg4 "int" "unsigned int")
-      unset(curl_cv_func_recv_test CACHE)
-      check_cxx_source_compiles("${curl_recv_test_head} Arg4,${recv_arg4} ${curl_recv_test_tail}" curl_cv_func_recv_test)
-      message(STATUS "Tested recv flags type == ${recv_arg4}")
-      if(curl_cv_func_recv_test)
-        set(RECV_TYPE_ARG4 "${recv_arg4}")
-        break()
-      endif(curl_cv_func_recv_test)
-    endforeach(recv_arg4)
-    if(NOT DEFINED RECV_TYPE_ARG4)
-      message(FATAL_ERROR "Cannot determine recv flags type")
-    endif()
+  if(NOT DEFINED curl_cv_func_recv_args OR curl_cv_func_recv_args STREQUAL "unknown")
+    check_send_recv_type(recv Retv "int" "ssize_t")
+    check_send_recv_type(recv Arg1 "SOCKET" "int")
+    check_send_recv_type(recv Arg2 "char *" "void *")
+    check_send_recv_type(recv Arg3 "int" "size_t" "socklen_t" "unsigned int")
+    check_send_recv_type(recv Arg4 "int" "unsigned int")
     set(curl_cv_func_recv_args
             "${RECV_TYPE_ARG1},${RECV_TYPE_ARG2},${RECV_TYPE_ARG3},${RECV_TYPE_ARG4},${RECV_TYPE_RETV}")
     set(HAVE_RECV 1)
     set(curl_cv_func_recv_done 1)
-  endif()
-
-  if(NOT DEFINED curl_cv_func_recv_args OR curl_cv_func_recv_args STREQUAL "unknown")
-    foreach(recv_retv "int" "ssize_t" )
-      foreach(recv_arg1 "SOCKET" "int" )
-        foreach(recv_arg2 "char *" "void *" )
-          foreach(recv_arg3 "int" "size_t" "socklen_t" "unsigned int")
-            foreach(recv_arg4 "int" "unsigned int")
-              if(NOT curl_cv_func_recv_done)
-                unset(curl_cv_func_recv_test CACHE)
-                check_c_source_compiles("
-                  ${_source_epilogue}
-                  #ifdef WINSOCK_API_LINKAGE
-                  WINSOCK_API_LINKAGE
-                  #endif
-                  extern ${recv_retv} ${signature_call_conv}
-                  recv(${recv_arg1}, ${recv_arg2}, ${recv_arg3}, ${recv_arg4});
-                  int main(void) {
-                    ${recv_arg1} s=0;
-                    ${recv_arg2} buf=0;
-                    ${recv_arg3} len=0;
-                    ${recv_arg4} flags=0;
-                    ${recv_retv} res = recv(s, buf, len, flags);
-                    (void) res;
-                    return 0;
-                  }"
-                  curl_cv_func_recv_test)
-                message(STATUS
-                  "Tested: ${recv_retv} recv(${recv_arg1}, ${recv_arg2}, ${recv_arg3}, ${recv_arg4})")
-                if(curl_cv_func_recv_test)
-                  set(curl_cv_func_recv_args
-                    "${recv_arg1},${recv_arg2},${recv_arg3},${recv_arg4},${recv_retv}")
-                  set(RECV_TYPE_ARG1 "${recv_arg1}")
-                  set(RECV_TYPE_ARG2 "${recv_arg2}")
-                  set(RECV_TYPE_ARG3 "${recv_arg3}")
-                  set(RECV_TYPE_ARG4 "${recv_arg4}")
-                  set(RECV_TYPE_RETV "${recv_retv}")
-                  set(HAVE_RECV 1)
-                  set(curl_cv_func_recv_done 1)
-                endif()
-              endif()
-            endforeach()
-          endforeach()
-        endforeach()
-      endforeach()
-    endforeach()
   else()
     string(REGEX REPLACE "^([^,]*),[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" RECV_TYPE_ARG1 "${curl_cv_func_recv_args}")
     string(REGEX REPLACE "^[^,]*,([^,]*),[^,]*,[^,]*,[^,]*$" "\\1" RECV_TYPE_ARG2 "${curl_cv_func_recv_args}")
@@ -203,100 +112,24 @@ endif()
 set(curl_cv_func_recv_args "${curl_cv_func_recv_args}" CACHE INTERNAL "Arguments for recv")
 set(HAVE_RECV 1)
 
-check_cxx_source_compiles("${_source_epilogue}
+check_c_source_compiles("${_source_epilogue}
 int main(void) {
     send(0, 0, 0, 0);
     return 0;
 }" curl_cv_send)
 if(curl_cv_send)
-  if(NOT DEFINED curl_cv_func_send_args OR "${curl_cv_func_send_args}" STREQUAL "unknown")
-    set(curl_send_test_head
-            "${_source_epilogue}
-            template <class T, class U>struct is_same{static constexpr bool value=false;};
-            template<class T>struct is_same<T,T>{static constexpr bool value=true;};
-            template <class Ret, class Arg1, class Arg2, class Arg3, class Arg4>
-            void check_args(Ret(${signature_call_conv} *r)(Arg1,Arg2,Arg3,Arg4)) {
-              static_assert(is_same<")
-    set(curl_send_test_tail
-            ">::value,\"\");
-              r(0,0,0,0);
-            }
-            int main() {
-              check_args(&send);
-            }")
-
-    foreach(send_retv "int" "ssize_t" )
-      unset(curl_cv_func_send_test CACHE)
-      check_cxx_source_compiles("${curl_send_test_head} Ret,${send_retv} ${curl_send_test_tail}" curl_cv_func_send_test)
-      message(STATUS "Tested send return type == ${send_retv}")
-      if(curl_cv_func_send_test)
-        set(SEND_TYPE_RETV "${send_retv}")
-        break()
-      endif(curl_cv_func_send_test)
-    endforeach(send_retv)
-    if(NOT DEFINED SEND_TYPE_RETV)
-      message(FATAL_ERROR "Cannot determine send return type")
-    endif()
-
-    foreach(send_arg1 "int" "ssize_t" "SOCKET")
-      unset(curl_cv_func_send_test CACHE)
-      check_cxx_source_compiles("${curl_send_test_head} Arg1,${send_arg1} ${curl_send_test_tail}" curl_cv_func_send_test)
-      message(STATUS "Tested send socket type == ${send_arg1}")
-      if(curl_cv_func_send_test)
-        set(SEND_TYPE_ARG1 "${send_arg1}")
-        break()
-      endif(curl_cv_func_send_test)
-    endforeach(send_arg1)
-    if(NOT DEFINED SEND_TYPE_ARG1)
-      message(FATAL_ERROR "Cannot determine send socket type")
-    endif()
-
-    foreach(send_arg2 "const void *" "void *" "char *" "const char *")
-      unset(curl_cv_func_send_test CACHE)
-      check_cxx_source_compiles("${curl_send_test_head} Arg2,${send_arg2} ${curl_send_test_tail}" curl_cv_func_send_test)
-      message(STATUS "Tested send buffer type == ${send_arg2}")
-      if(curl_cv_func_send_test)
-        set(SEND_TYPE_ARG2 "${send_arg2}")
-        break()
-      endif(curl_cv_func_send_test)
-    endforeach(send_arg2)
-    if(NOT DEFINED SEND_TYPE_ARG2)
-      message(FATAL_ERROR "Cannot determine send buffer type")
-    endif()
-    string(REGEX REPLACE "(const) .*" "\\1" send_qual_arg2 "${SEND_TYPE_ARG2}")
+  if(NOT DEFINED curl_cv_func_send_args OR curl_cv_func_send_args STREQUAL "unknown")
+    check_send_recv_type(send Retv "int" "ssize_t")
+    check_send_recv_type(send Arg1 "SOCKET" "int" "ssize_t")
+    check_send_recv_type(send Arg2 "const char *" "const void *" "void *" "char *")
+    check_send_recv_type(send Arg3 "int" "size_t" "socklen_t" "unsigned int")
+    check_send_recv_type(send Arg4 "int" "unsigned int")
+    string(REGEX REPLACE "(const) .*" "\\1" SEND_QUAL_ARG2 "${SEND_TYPE_ARG2}")
     string(REGEX REPLACE "const (.*)" "\\1" SEND_TYPE_ARG2 "${SEND_TYPE_ARG2}")
-
-    foreach(send_arg3 "size_t" "int" "socklen_t" "unsigned int")
-      unset(curl_cv_func_send_test CACHE)
-      check_cxx_source_compiles("${curl_send_test_head} Arg3,${send_arg3} ${curl_send_test_tail}" curl_cv_func_send_test)
-      message(STATUS "Tested send length type == ${send_arg3}")
-      if(curl_cv_func_send_test)
-        set(SEND_TYPE_ARG3 "${send_arg3}")
-        break()
-      endif(curl_cv_func_send_test)
-    endforeach(send_arg3)
-    if(NOT DEFINED SEND_TYPE_ARG3)
-      message(FATAL_ERROR "Cannot determine send length type")
-    endif()
-
-    foreach(send_arg4 "int" "unsigned int")
-      unset(curl_cv_func_send_test CACHE)
-      check_cxx_source_compiles("${curl_send_test_head} Arg4,${send_arg4} ${curl_send_test_tail}" curl_cv_func_send_test)
-      message(STATUS "Tested send flags type == ${send_arg4}")
-      if(curl_cv_func_send_test)
-        set(SEND_TYPE_ARG4 "${send_arg4}")
-        break()
-      endif(curl_cv_func_send_test)
-    endforeach(send_arg4)
-    if(NOT DEFINED SEND_TYPE_ARG4)
-      message(FATAL_ERROR "Cannot determine send flags type")
-    endif()
-
     set(curl_cv_func_send_args
-            "${SEND_TYPE_ARG1},${SEND_TYPE_ARG2},${SEND_TYPE_ARG3},${SEND_TYPE_ARG4},${SEND_TYPE_RETV},${send_qual_arg2}")
+            "${SEND_TYPE_ARG1},${SEND_TYPE_ARG2},${SEND_TYPE_ARG3},${SEND_TYPE_ARG4},${SEND_TYPE_RETV},${SEND_QUAL_ARG2}")
     set(HAVE_SEND 1)
     set(curl_cv_func_send_done 1)
-
   else()
     string(REGEX REPLACE "^([^,]*),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG1 "${curl_cv_func_send_args}")
     string(REGEX REPLACE "^[^,]*,([^,]*),[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG2 "${curl_cv_func_send_args}")
@@ -309,14 +142,13 @@ if(curl_cv_send)
   if("${curl_cv_func_send_args}" STREQUAL "unknown")
     message(FATAL_ERROR "Cannot find proper types to use for send args")
   endif()
-  set(SEND_QUAL_ARG2 "const")
 else()
   message(FATAL_ERROR "Unable to link function send")
 endif()
 set(curl_cv_func_send_args "${curl_cv_func_send_args}" CACHE INTERNAL "Arguments for send")
 set(HAVE_SEND 1)
 
-check_cxx_source_compiles("${_source_epilogue}
+check_c_source_compiles("${_source_epilogue}
   int main(void) {
     int flag = MSG_NOSIGNAL;
     (void)flag;
@@ -328,7 +160,7 @@ if(NOT HAVE_WINDOWS_H)
   add_header_include(TIME_WITH_SYS_TIME "time.h")
   add_header_include(HAVE_TIME_H "time.h")
 endif()
-check_cxx_source_compiles("${_source_epilogue}
+check_c_source_compiles("${_source_epilogue}
 int main(void) {
   struct timeval ts;
   ts.tv_sec  = 0;
@@ -345,7 +177,7 @@ if(HAVE_SIGNAL_H)
 endif()
 check_type_size("sig_atomic_t" SIZEOF_SIG_ATOMIC_T)
 if(HAVE_SIZEOF_SIG_ATOMIC_T)
-  check_cxx_source_compiles("
+  check_c_source_compiles("
     #ifdef HAVE_SIGNAL_H
     #  include <signal.h>
     #endif
