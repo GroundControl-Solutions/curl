@@ -33,24 +33,3 @@ MULTIBYTE = ../../lib/curl_multibyte.c ../../lib/curl_multibyte.h
 
 # these files are used in every single test program below
 SUPPORTFILES = first.c test.h
-
-# These are all libcurl test programs
-noinst_PROGRAMS = chkhostname libauthretry libntlmconnect
-
-chkdecimalpoint_SOURCES = chkdecimalpoint.c ../../lib/mprintf.c \
- ../../lib/curl_ctype.c  ../../lib/dynbuf.c ../../lib/strdup.c
-chkdecimalpoint_LDADD =
-chkdecimalpoint_CPPFLAGS = $(AM_CPPFLAGS) -DCURL_STATICLIB \
- -DCURLX_NO_MEMORY_CALLBACKS -DBUILDING_LIBCURL
-
-chkhostname_SOURCES = chkhostname.c ../../lib/curl_gethostname.c
-chkhostname_LDADD = @CURL_NETWORK_LIBS@
-chkhostname_DEPENDENCIES =
-chkhostname_CPPFLAGS = $(AM_CPPFLAGS)
-
-libntlmconnect_SOURCES = libntlmconnect.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
-libntlmconnect_LDADD = $(TESTUTIL_LIBS)
-libntlmconnect_CPPFLAGS = $(AM_CPPFLAGS)
-
-libauthretry_SOURCES = libauthretry.c $(SUPPORTFILES)
-libauthretry_CPPFLAGS = $(AM_CPPFLAGS)

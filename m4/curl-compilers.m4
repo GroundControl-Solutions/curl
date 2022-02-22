@@ -64,7 +64,7 @@ AC_DEFUN([CURL_CHECK_COMPILER], [
 ***
 *** If you wish to help the curl project to better support your compiler
 *** you can report this and the required info on the libcurl development
-*** mailing list: https://cool.haxx.se/mailman/listinfo/curl-library/
+*** mailing list: https://lists.haxx.selistinfo/curl-library/
 ***
 _EOF
   fi
@@ -536,6 +536,9 @@ AC_DEFUN([CURL_SET_COMPILER_BASIC_OPTS], [
         dnl warn about compile-time arguments used during link-time, like
         dnl -O and -g and -pedantic.
         tmp_CFLAGS="$tmp_CFLAGS -Qunused-arguments"
+        dnl Disable pointer to bool conversion warnings since they cause
+        dnl lib/securetransp.c cause several warnings for checks we want.
+        tmp_CFLAGS="$tmp_CFLAGS -Wno-pointer-bool-conversion"
         ;;
         #
       DEC_C)
