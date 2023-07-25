@@ -27,7 +27,6 @@
 #include "llist.h"
 #include "hash.h"
 #include "conncache.h"
-#include "curl/multi.h"
 #include "psl.h"
 #include "socketpair.h"
 
