@@ -22,7 +22,6 @@
 #
 ###########################################################################
 include(CheckCSourceCompiles)
-include(CheckCXXSourceCompiles)
 # The begin of the sources (macros and includes)
 set(_source_epilogue "#undef inline")
 
