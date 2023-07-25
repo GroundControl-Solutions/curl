@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -28,6 +28,7 @@
 #include "curlx.h"
 
 #include "tool_cfgable.h"
+#include "tool_operate.h"
 #include "tool_cb_see.h"
 
 #include "memdebug.h" /* keep this as LAST include */
@@ -48,7 +49,7 @@
 
 int tool_seek_cb(void *userdata, curl_off_t offset, int whence)
 {
-  struct InStruct *in = userdata;
+  struct per_transfer *per = userdata;
 
 #if(SIZEOF_CURL_OFF_T > SIZEOF_OFF_T) && !defined(USE_WIN32_LARGE_FILES)
 
@@ -81,7 +82,7 @@ int tool_seek_cb(void *userdata, curl_off_t offset, int whence)
   }
 #endif
 
-  if(LSEEK_ERROR == lseek(in->fd, offset, whence))
+  if(LSEEK_ERROR == lseek(per->infd, offset, whence))
     /* couldn't rewind, the reason is in errno but errno is just not portable
        enough and we don't actually care that much why we failed. We'll let
        libcurl know that it may try other means if it wants to. */

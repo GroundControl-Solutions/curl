@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -51,104 +51,6 @@ endif()
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-function(check_send_recv_type func var)
-  message(CHECK_START "Checking type of ${func} ${var}")
-  string(TOUPPER "${func}_TYPE_${var}" result_var_name)
-  foreach(type IN LISTS ARGN)
-    unset(check_send_recv_type_test CACHE)
-    # C++ includes don't work properly with curl, so define is_same ourselves
-    check_cxx_source_compiles("
-      ${_source_epilogue}
-      template<class,class>struct is_same{static constexpr bool value=false;};
-      template<class T>struct is_same<T,T>{static constexpr bool value=true;};
-      template <class Retv, class Arg1, class Arg2, class Arg3, class Arg4>
-      void check_args(Retv(${signature_call_conv} *r)(Arg1,Arg2,Arg3,Arg4)) {
-        static_assert(is_same<${var},${type}>::value, \"\");
-        r(0,0,0,0);
-      }
-      int main(void) {
-        check_args(&${func});
-      }"
-      check_send_recv_type_test)
-    if(check_send_recv_type_test)
-      message(CHECK_PASS "${type}")
-      set(${result_var_name} ${type} PARENT_SCOPE)
-      return()
-    endif()
-  endforeach()
-  message(CHECK_FAIL "<unknown>")
-  message(FATAL_ERROR "Could not determine type of ${func} ${var}")
-endfunction()
-
-check_c_source_compiles("${_source_epilogue}
-int main(void) {
-    recv(0, 0, 0, 0);
-    return 0;
-}" curl_cv_recv)
-if(curl_cv_recv)
-  if(NOT DEFINED curl_cv_func_recv_args OR curl_cv_func_recv_args STREQUAL "unknown")
-    check_send_recv_type(recv Retv "int" "ssize_t")
-    check_send_recv_type(recv Arg1 "SOCKET" "int")
-    check_send_recv_type(recv Arg2 "char *" "void *")
-    check_send_recv_type(recv Arg3 "int" "size_t" "socklen_t" "unsigned int")
-    check_send_recv_type(recv Arg4 "int" "unsigned int")
-    set(curl_cv_func_recv_args
-            "${RECV_TYPE_ARG1},${RECV_TYPE_ARG2},${RECV_TYPE_ARG3},${RECV_TYPE_ARG4},${RECV_TYPE_RETV}")
-    set(HAVE_RECV 1)
-    set(curl_cv_func_recv_done 1)
-  else()
-    string(REGEX REPLACE "^([^,]*),[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" RECV_TYPE_ARG1 "${curl_cv_func_recv_args}")
-    string(REGEX REPLACE "^[^,]*,([^,]*),[^,]*,[^,]*,[^,]*$" "\\1" RECV_TYPE_ARG2 "${curl_cv_func_recv_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,([^,]*),[^,]*,[^,]*$" "\\1" RECV_TYPE_ARG3 "${curl_cv_func_recv_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,[^,]*,([^,]*),[^,]*$" "\\1" RECV_TYPE_ARG4 "${curl_cv_func_recv_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,[^,]*,[^,]*,([^,]*)$" "\\1" RECV_TYPE_RETV "${curl_cv_func_recv_args}")
-  endif()
-
-  if(curl_cv_func_recv_args STREQUAL "unknown")
-    message(FATAL_ERROR "Cannot find proper types to use for recv args")
-  endif()
-else()
-  message(FATAL_ERROR "Unable to link function recv")
-endif()
-set(curl_cv_func_recv_args "${curl_cv_func_recv_args}" CACHE INTERNAL "Arguments for recv")
-set(HAVE_RECV 1)
-
-check_c_source_compiles("${_source_epilogue}
-int main(void) {
-    send(0, 0, 0, 0);
-    return 0;
-}" curl_cv_send)
-if(curl_cv_send)
-  if(NOT DEFINED curl_cv_func_send_args OR curl_cv_func_send_args STREQUAL "unknown")
-    check_send_recv_type(send Retv "int" "ssize_t")
-    check_send_recv_type(send Arg1 "SOCKET" "int" "ssize_t")
-    check_send_recv_type(send Arg2 "const char *" "const void *" "void *" "char *")
-    check_send_recv_type(send Arg3 "int" "size_t" "socklen_t" "unsigned int")
-    check_send_recv_type(send Arg4 "int" "unsigned int")
-    string(REGEX REPLACE "(const) .*" "\\1" SEND_QUAL_ARG2 "${SEND_TYPE_ARG2}")
-    string(REGEX REPLACE "const (.*)" "\\1" SEND_TYPE_ARG2 "${SEND_TYPE_ARG2}")
-    set(curl_cv_func_send_args
-            "${SEND_TYPE_ARG1},${SEND_TYPE_ARG2},${SEND_TYPE_ARG3},${SEND_TYPE_ARG4},${SEND_TYPE_RETV},${SEND_QUAL_ARG2}")
-    set(HAVE_SEND 1)
-    set(curl_cv_func_send_done 1)
-  else()
-    string(REGEX REPLACE "^([^,]*),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG1 "${curl_cv_func_send_args}")
-    string(REGEX REPLACE "^[^,]*,([^,]*),[^,]*,[^,]*,[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG2 "${curl_cv_func_send_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,([^,]*),[^,]*,[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG3 "${curl_cv_func_send_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,[^,]*,([^,]*),[^,]*,[^,]*$" "\\1" SEND_TYPE_ARG4 "${curl_cv_func_send_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,[^,]*,[^,]*,([^,]*),[^,]*$" "\\1" SEND_TYPE_RETV "${curl_cv_func_send_args}")
-    string(REGEX REPLACE "^[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,([^,]*)$" "\\1" SEND_QUAL_ARG2 "${curl_cv_func_send_args}")
-  endif()
-
-  if("${curl_cv_func_send_args}" STREQUAL "unknown")
-    message(FATAL_ERROR "Cannot find proper types to use for send args")
-  endif()
-else()
-  message(FATAL_ERROR "Unable to link function send")
-endif()
-set(curl_cv_func_send_args "${curl_cv_func_send_args}" CACHE INTERNAL "Arguments for send")
-set(HAVE_SEND 1)
-
 check_c_source_compiles("${_source_epilogue}
   int main(void) {
     int flag = MSG_NOSIGNAL;
@@ -190,51 +92,51 @@ if(HAVE_SIZEOF_STRUCT_POLLFD)
 endif()
 unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
 
-if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+if(NOT CMAKE_CROSSCOMPILING)
   if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "iOS")
-  # only try this on non-apple platforms
+    # only try this on non-apple platforms
 
-  # if not cross-compilation...
-  include(CheckCSourceRuns)
-  set(CMAKE_REQUIRED_FLAGS "")
-  if(HAVE_SYS_POLL_H)
-    set(CMAKE_REQUIRED_FLAGS "-DHAVE_SYS_POLL_H")
-  elseif(HAVE_POLL_H)
-    set(CMAKE_REQUIRED_FLAGS "-DHAVE_POLL_H")
-  endif()
-  check_c_source_runs("
-    #include <stdlib.h>
-    #include <sys/time.h>
+    # if not cross-compilation...
+    include(CheckCSourceRuns)
+    set(CMAKE_REQUIRED_FLAGS "")
+    if(HAVE_SYS_POLL_H)
+      set(CMAKE_REQUIRED_FLAGS "-DHAVE_SYS_POLL_H")
+    elseif(HAVE_POLL_H)
+      set(CMAKE_REQUIRED_FLAGS "-DHAVE_POLL_H")
+    endif()
+    check_c_source_runs("
+      #include <stdlib.h>
+      #include <sys/time.h>
 
-    #ifdef HAVE_SYS_POLL_H
-    #  include <sys/poll.h>
-    #elif  HAVE_POLL_H
-    #  include <poll.h>
-    #endif
+      #ifdef HAVE_SYS_POLL_H
+      #  include <sys/poll.h>
+      #elif  HAVE_POLL_H
+      #  include <poll.h>
+      #endif
 
-    int main(void)
-    {
-        if(0 != poll(0, 0, 10)) {
-          return 1; /* fail */
-        }
-        else {
-          /* detect the 10.12 poll() breakage */
-          struct timeval before, after;
-          int rc;
-          size_t us;
-
-          gettimeofday(&before, NULL);
-          rc = poll(NULL, 0, 500);
-          gettimeofday(&after, NULL);
-
-          us = (after.tv_sec - before.tv_sec) * 1000000 +
-            (after.tv_usec - before.tv_usec);
-
-          if(us < 400000) {
-            return 1;
+      int main(void)
+      {
+          if(0 != poll(0, 0, 10)) {
+            return 1; /* fail */
           }
-        }
-        return 0;
+          else {
+            /* detect the 10.12 poll() breakage */
+            struct timeval before, after;
+            int rc;
+            size_t us;
+
+            gettimeofday(&before, NULL);
+            rc = poll(NULL, 0, 500);
+            gettimeofday(&after, NULL);
+
+            us = (after.tv_sec - before.tv_sec) * 1000000 +
+              (after.tv_usec - before.tv_usec);
+
+            if(us < 400000) {
+              return 1;
+            }
+          }
+          return 0;
     }" HAVE_POLL_FINE)
   endif()
 endif()

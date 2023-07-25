@@ -7,7 +7,7 @@
  - range "globbing" support: [0-13], {one,two,three}
  - multiple file upload on a single command line
  - custom maximum transfer rate
- - redirectable stderr
+ - redirect stderr
  - parallel transfers
 
 ## libcurl
@@ -43,7 +43,7 @@
  - PUT
  - HEAD
  - POST
- - multipart formpost (RFC1867-style)
+ - multipart formpost (RFC 1867-style)
  - authentication: Basic, Digest, NTLM (9) and Negotiate (SPNEGO) (3)
    to server and proxy
  - resume (both GET and PUT)
@@ -174,7 +174,7 @@
 ## POP3S (1)
 
  - implicit `pop3s://` support
- - explicit "STLS" usage to "upgrade" plain `pop3://` connections to use SSL
+ - explicit `STLS` usage to "upgrade" plain `pop3://` connections to use SSL
  - via http-proxy
 
 ## IMAP
@@ -183,7 +183,7 @@
  - SASL based authentication: Plain, Login, CRAM-MD5, Digest-MD5, NTLM (9),
    Kerberos 5 (4) and External.
  - list the folders of a mailbox
- - select a mailbox with support for verifying the UIDVALIDITY
+ - select a mailbox with support for verifying the `UIDVALIDITY`
  - fetch emails with support for specifying the UID and SECTION
  - upload emails via the append command
  - enhanced command support for: EXAMINE, CREATE, DELETE, RENAME, STATUS,

@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -32,4 +32,5 @@ WARNLESS = ../../lib/warnless.c ../../lib/warnless.h
 MULTIBYTE = ../../lib/curl_multibyte.c ../../lib/curl_multibyte.h
 
 # these files are used in every single test program below
-SUPPORTFILES = first.c test.h
+TIMEDIFF = ../../lib/timediff.c ../../lib/timediff.h
+SUPPORTFILES = $(TIMEDIFF) first.c test.h
