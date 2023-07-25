@@ -1565,11 +1565,6 @@ foreach(_lib ${CMAKE_C_IMPLICIT_LINK_LIBRARIES} ${CURL_LIBS})
       # Assume the user won't need this information in the .pc file.
       continue()
     endif()
-    get_target_property(_libimported "${_libname}" IMPORTED)
-    if(NOT _libimported)
-      # Getting the location of a non-imported target is an error
-      continue()
-    endif()
     get_target_property(_lib "${_libname}" LOCATION)
     if(NOT _lib)
       message(WARNING "Bad lib in library list: ${_libname}")
