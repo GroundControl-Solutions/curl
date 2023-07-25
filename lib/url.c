@@ -533,7 +533,9 @@ CURLcode Curl_init_userdefined(struct Curl_easy *data)
   set->doh_verifyhost = TRUE;
   set->doh_verifypeer = TRUE;
 #endif
+#if _WIN32
   set->ssl.revoke_best_effort = TRUE;
+#endif
   set->ssl.primary.verifypeer = TRUE;
   set->ssl.primary.verifyhost = TRUE;
 #ifdef USE_SSH
