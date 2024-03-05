@@ -36,6 +36,13 @@
 /* Define this to enable lots of debugging for mbedTLS */
 /* #define MBEDTLS_DEBUG */
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+/* mbedTLS (as of v3.5.1) has a duplicate function declaration
+   in its public headers. Disable the warning that detects it. */
+#pragma GCC diagnostic ignored "-Wredundant-decls"
+#endif
+
 #include <mbedtls/version.h>
 #if MBEDTLS_VERSION_NUMBER >= 0x02040000
 #include <mbedtls/net_sockets.h>
@@ -56,6 +63,10 @@
 #  endif
 #endif
 
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
 #include "urldata.h"
 #include "sendf.h"
 #include "inet_pton.h"
@@ -67,6 +78,7 @@
 #include "select.h"
 #include "multiif.h"
 #include "mbedtls_threadlock.h"
+#include "strdup.h"
 
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
@@ -153,10 +165,10 @@ static void mbed_debug(void *context, int level, const char *f_name,
   infof(data, "%s", line);
   (void) level;
 }
-#else
 #endif
 
-static int bio_cf_write(void *bio, const unsigned char *buf, size_t blen)
+static int mbedtls_bio_cf_write(void *bio,
+                                const unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
   struct Curl_easy *data = CF_DATA_CURRENT(cf);
@@ -164,16 +176,19 @@ static int bio_cf_write(void *bio, const unsigned char *buf, size_t blen)
   CURLcode result;
 
   DEBUGASSERT(data);
+  if(!data)
+    return 0;
+
   nwritten = Curl_conn_cf_send(cf->next, data, (char *)buf, blen, &result);
-  DEBUGF(LOG_CF(data, cf, "bio_cf_out_write(len=%zu) -> %zd, err=%d",
-                blen, nwritten, result));
+  CURL_TRC_CF(data, cf, "mbedtls_bio_cf_out_write(len=%zu) -> %zd, err=%d",
+              blen, nwritten, result);
   if(nwritten < 0 && CURLE_AGAIN == result) {
     nwritten = MBEDTLS_ERR_SSL_WANT_WRITE;
   }
   return (int)nwritten;
 }
 
-static int bio_cf_read(void *bio, unsigned char *buf, size_t blen)
+static int mbedtls_bio_cf_read(void *bio, unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
   struct Curl_easy *data = CF_DATA_CURRENT(cf);
@@ -181,13 +196,15 @@ static int bio_cf_read(void *bio, unsigned char *buf, size_t blen)
   CURLcode result;
 
   DEBUGASSERT(data);
+  if(!data)
+    return 0;
   /* OpenSSL catches this case, so should we. */
   if(!buf)
     return 0;
 
   nread = Curl_conn_cf_recv(cf->next, data, (char *)buf, blen, &result);
-  DEBUGF(LOG_CF(data, cf, "bio_cf_in_read(len=%zu) -> %zd, err=%d",
-                blen, nread, result));
+  CURL_TRC_CF(data, cf, "mbedtls_bio_cf_in_read(len=%zu) -> %zd, err=%d",
+              blen, nread, result);
   if(nread < 0 && CURLE_AGAIN == result) {
     nread = MBEDTLS_ERR_SSL_WANT_READ;
   }
@@ -321,7 +338,7 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
   char * const ssl_cert = ssl_config->primary.clientcert;
   const struct curl_blob *ssl_cert_blob = ssl_config->primary.cert_blob;
   const char * const ssl_crlfile = ssl_config->primary.CRLfile;
-  const char *hostname = connssl->hostname;
+  const char *hostname = connssl->peer.hostname;
   int ret = -1;
   char errorbuf[128];
 
@@ -366,11 +383,10 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     /* Unfortunately, mbedtls_x509_crt_parse() requires the data to be null
        terminated even when provided the exact length, forcing us to waste
        extra memory here. */
-    unsigned char *newblob = malloc(ca_info_blob->len + 1);
+    unsigned char *newblob = Curl_memdup0(ca_info_blob->data,
+                                          ca_info_blob->len);
     if(!newblob)
       return CURLE_OUT_OF_MEMORY;
-    memcpy(newblob, ca_info_blob->data, ca_info_blob->len);
-    newblob[ca_info_blob->len] = 0; /* null terminate */
     ret = mbedtls_x509_crt_parse(&backend->cacert, newblob,
                                  ca_info_blob->len + 1);
     free(newblob);
@@ -440,11 +456,10 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     /* Unfortunately, mbedtls_x509_crt_parse() requires the data to be null
        terminated even when provided the exact length, forcing us to waste
        extra memory here. */
-    unsigned char *newblob = malloc(ssl_cert_blob->len + 1);
+    unsigned char *newblob = Curl_memdup0(ssl_cert_blob->data,
+                                          ssl_cert_blob->len);
     if(!newblob)
       return CURLE_OUT_OF_MEMORY;
-    memcpy(newblob, ssl_cert_blob->data, ssl_cert_blob->len);
-    newblob[ssl_cert_blob->len] = 0; /* null terminate */
     ret = mbedtls_x509_crt_parse(&backend->clicert, newblob,
                                  ssl_cert_blob->len + 1);
     free(newblob);
@@ -591,7 +606,9 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   mbedtls_ssl_conf_rng(&backend->config, mbedtls_ctr_drbg_random,
                        &backend->ctr_drbg);
-  mbedtls_ssl_set_bio(&backend->ssl, cf, bio_cf_write, bio_cf_read,
+  mbedtls_ssl_set_bio(&backend->ssl, cf,
+                      mbedtls_bio_cf_write,
+                      mbedtls_bio_cf_read,
                       NULL /*  rev_timeout() */);
 
   mbedtls_ssl_conf_ciphersuites(&backend->config,
@@ -619,7 +636,7 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
         failf(data, "mbedtls_ssl_set_session returned -0x%x", -ret);
         return CURLE_SSL_CONNECT_ERROR;
       }
-      infof(data, "mbedTLS re-using session");
+      infof(data, "mbedTLS reusing session");
     }
     Curl_ssl_sessionid_unlock(data);
   }
@@ -636,9 +653,9 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     mbedtls_ssl_conf_own_cert(&backend->config,
                               &backend->clicert, &backend->pk);
   }
-  {
-    char *snihost = Curl_ssl_snihost(data, hostname, NULL);
-    if(!snihost || mbedtls_ssl_set_hostname(&backend->ssl, snihost)) {
+
+  if(connssl->peer.sni) {
+    if(mbedtls_ssl_set_hostname(&backend->ssl, connssl->peer.sni)) {
       /* mbedtls_ssl_set_hostname() sets the name to use in CN/SAN checks and
          the name to set in the SNI extension. So even if curl connects to a
          host specified as an IP address, this function must be used. */
@@ -1204,6 +1221,9 @@ static int mbedtls_init(void)
 
 static void mbedtls_cleanup(void)
 {
+#ifdef THREADING_SUPPORT
+  mbedtls_entropy_free(&ts_entropy);
+#endif /* THREADING_SUPPORT */
   (void)Curl_mbedtlsthreadlock_thread_cleanup();
 }
 
@@ -1271,7 +1291,7 @@ const struct Curl_ssl Curl_ssl_mbedtls = {
   Curl_none_cert_status_request,    /* cert_status_request */
   mbedtls_connect,                  /* connect */
   mbedtls_connect_nonblocking,      /* connect_nonblocking */
-  Curl_ssl_get_select_socks,                 /* getsock */
+  Curl_ssl_adjust_pollset,          /* adjust_pollset */
   mbedtls_get_internals,            /* get_internals */
   mbedtls_close,                    /* close_one */
   mbedtls_close_all,                /* close_all */

@@ -33,6 +33,7 @@ man_MANS =                                      \
   CURLINFO_CONDITION_UNMET.3                    \
   CURLINFO_CONNECT_TIME.3                       \
   CURLINFO_CONNECT_TIME_T.3                     \
+  CURLINFO_CONN_ID.3                            \
   CURLINFO_CONTENT_LENGTH_DOWNLOAD.3            \
   CURLINFO_CONTENT_LENGTH_DOWNLOAD_T.3          \
   CURLINFO_CONTENT_LENGTH_UPLOAD.3              \
@@ -64,6 +65,7 @@ man_MANS =                                      \
   CURLINFO_PROXY_ERROR.3                        \
   CURLINFO_PROXY_SSL_VERIFYRESULT.3             \
   CURLINFO_PROXYAUTH_AVAIL.3                    \
+  CURLINFO_QUEUE_TIME_T.3                       \
   CURLINFO_REDIRECT_COUNT.3                     \
   CURLINFO_REDIRECT_TIME.3                      \
   CURLINFO_REDIRECT_TIME_T.3                    \
@@ -93,6 +95,7 @@ man_MANS =                                      \
   CURLINFO_TLS_SSL_PTR.3                        \
   CURLINFO_TOTAL_TIME.3                         \
   CURLINFO_TOTAL_TIME_T.3                       \
+  CURLINFO_XFER_ID.3                            \
   CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE.3          \
   CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE.3        \
   CURLMOPT_MAX_CONCURRENT_STREAMS.3             \
@@ -304,6 +307,7 @@ man_MANS =                                      \
   CURLOPT_PROXYUSERNAME.3                       \
   CURLOPT_PROXYUSERPWD.3                        \
   CURLOPT_PUT.3                                 \
+  CURLOPT_QUICK_EXIT.3                          \
   CURLOPT_QUOTE.3                               \
   CURLOPT_RANDOM_FILE.3                         \
   CURLOPT_RANGE.3                               \
@@ -329,6 +333,7 @@ man_MANS =                                      \
   CURLOPT_SEEKDATA.3                            \
   CURLOPT_SEEKFUNCTION.3                        \
   CURLOPT_SERVER_RESPONSE_TIMEOUT.3             \
+  CURLOPT_SERVER_RESPONSE_TIMEOUT_MS.3          \
   CURLOPT_SERVICE_NAME.3                        \
   CURLOPT_SHARE.3                               \
   CURLOPT_SOCKOPTDATA.3                         \
@@ -338,6 +343,8 @@ man_MANS =                                      \
   CURLOPT_SOCKS5_GSSAPI_SERVICE.3               \
   CURLOPT_SSH_AUTH_TYPES.3                      \
   CURLOPT_SSH_COMPRESSION.3                     \
+  CURLOPT_SSH_HOSTKEYDATA.3                     \
+  CURLOPT_SSH_HOSTKEYFUNCTION.3                 \
   CURLOPT_SSH_HOST_PUBLIC_KEY_MD5.3             \
   CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256.3          \
   CURLOPT_SSH_KEYDATA.3                         \
@@ -348,7 +355,7 @@ man_MANS =                                      \
   CURLOPT_SSL_CIPHER_LIST.3                     \
   CURLOPT_SSL_CTX_DATA.3                        \
   CURLOPT_SSL_CTX_FUNCTION.3                    \
-  CURLOPT_SSL_EC_CURVES.3			\
+  CURLOPT_SSL_EC_CURVES.3                       \
   CURLOPT_SSL_ENABLE_ALPN.3                     \
   CURLOPT_SSL_ENABLE_NPN.3                      \
   CURLOPT_SSL_FALSESTART.3                      \

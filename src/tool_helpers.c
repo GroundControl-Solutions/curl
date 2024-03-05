@@ -76,6 +76,10 @@ const char *param2text(int res)
     return "--continue-at and --remote-header-name cannot be combined";
   case PARAM_READ_ERROR:
     return "error encountered when reading a file";
+  case PARAM_EXPAND_ERROR:
+    return "variable expansion failure";
+  case PARAM_BLANK_STRING:
+    return "blank argument where content is expected";
   default:
     return "unknown error";
   }

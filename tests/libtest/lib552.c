@@ -96,10 +96,7 @@ int my_trace(CURL *handle, curl_infotype type,
   switch(type) {
   case CURLINFO_TEXT:
     fprintf(stderr, "== Info: %s", (char *)data);
-    /* FALLTHROUGH */
-  default: /* in case a new one is introduced to shock us */
     return 0;
-
   case CURLINFO_HEADER_OUT:
     text = "=> Send header";
     break;
@@ -118,6 +115,8 @@ int my_trace(CURL *handle, curl_infotype type,
   case CURLINFO_SSL_DATA_IN:
     text = "<= Recv SSL data";
     break;
+  default: /* in case a new one is introduced to shock us */
+    return 0;
   }
 
   dump(text, stderr, (unsigned char *)data, size, config->trace_ascii);
@@ -213,7 +212,6 @@ int test(char *URL)
   test_setopt(curl, CURLOPT_PROXYAUTH, (long)CURLAUTH_ANY);
 
   res = curl_easy_perform(curl);
-  fprintf(stderr, "curl_easy_perform = %d\n", (int)res);
 
 test_cleanup:
 

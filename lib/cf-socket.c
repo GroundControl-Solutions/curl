@@ -71,6 +71,7 @@
 #include "warnless.h"
 #include "conncache.h"
 #include "multihandle.h"
+#include "rand.h"
 #include "share.h"
 #include "version_win32.h"
 
@@ -80,7 +81,7 @@
 #include "memdebug.h"
 
 
-#if defined(ENABLE_IPV6) && defined(IPV6_V6ONLY) && defined(WIN32)
+#if defined(ENABLE_IPV6) && defined(IPV6_V6ONLY) && defined(_WIN32)
 /* It makes support for IPv4-mapped IPv6 addresses.
  * Linux kernel, NetBSD, FreeBSD and Darwin: default is off;
  * Windows Vista and later: default is on;
@@ -101,11 +102,7 @@ static void tcpnodelay(struct Curl_easy *data, curl_socket_t sockfd)
 #if defined(TCP_NODELAY)
   curl_socklen_t onoff = (curl_socklen_t) 1;
   int level = IPPROTO_TCP;
-#if !defined(CURL_DISABLE_VERBOSE_STRINGS)
   char buffer[STRERROR_LEN];
-#else
-  (void) data;
-#endif
 
   if(setsockopt(sockfd, level, TCP_NODELAY, (void *)&onoff,
                 sizeof(onoff)) < 0)
@@ -126,6 +123,7 @@ static void nosigpipe(struct Curl_easy *data,
                       curl_socket_t sockfd)
 {
   int onoff = 1;
+  (void)data;
   if(setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (void *)&onoff,
                 sizeof(onoff)) < 0) {
 #if !defined(CURL_DISABLE_VERBOSE_STRINGS)
@@ -139,14 +137,14 @@ static void nosigpipe(struct Curl_easy *data,
 #define nosigpipe(x,y) Curl_nop_stmt
 #endif
 
-#if defined(__DragonFly__) || defined(HAVE_WINSOCK2_H)
+#if defined(__DragonFly__) || defined(USE_WINSOCK)
 /* DragonFlyBSD and Windows use millisecond units */
 #define KEEPALIVE_FACTOR(x) (x *= 1000)
 #else
 #define KEEPALIVE_FACTOR(x)
 #endif
 
-#if defined(HAVE_WINSOCK2_H) && !defined(SIO_KEEPALIVE_VALS)
+#if defined(USE_WINSOCK) && !defined(SIO_KEEPALIVE_VALS)
 #define SIO_KEEPALIVE_VALS    _WSAIOW(IOC_VENDOR,4)
 
 struct tcp_keepalive {
@@ -165,7 +163,9 @@ tcpkeepalive(struct Curl_easy *data,
   /* only set IDLE and INTVL if setting KEEPALIVE is successful */
   if(setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE,
         (void *)&optval, sizeof(optval)) < 0) {
-    infof(data, "Failed to set SO_KEEPALIVE on fd %d", sockfd);
+    infof(data, "Failed to set SO_KEEPALIVE on fd "
+          "%" CURL_FORMAT_SOCKET_T ": errno %d",
+          sockfd, SOCKERRNO);
   }
   else {
 #if defined(SIO_KEEPALIVE_VALS)
@@ -180,8 +180,9 @@ tcpkeepalive(struct Curl_easy *data,
     vals.keepaliveinterval = optval;
     if(WSAIoctl(sockfd, SIO_KEEPALIVE_VALS, (LPVOID) &vals, sizeof(vals),
                 NULL, 0, &dummy, NULL, NULL) != 0) {
-      infof(data, "Failed to set SIO_KEEPALIVE_VALS on fd %d: %d",
-            (int)sockfd, WSAGetLastError());
+      infof(data, "Failed to set SIO_KEEPALIVE_VALS on fd "
+                  "%" CURL_FORMAT_SOCKET_T ": errno %d",
+                  sockfd, SOCKERRNO);
     }
 #else
 #ifdef TCP_KEEPIDLE
@@ -189,7 +190,9 @@ tcpkeepalive(struct Curl_easy *data,
     KEEPALIVE_FACTOR(optval);
     if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE,
           (void *)&optval, sizeof(optval)) < 0) {
-      infof(data, "Failed to set TCP_KEEPIDLE on fd %d", sockfd);
+      infof(data, "Failed to set TCP_KEEPIDLE on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
     }
 #elif defined(TCP_KEEPALIVE)
     /* Mac OS X style */
@@ -197,7 +200,9 @@ tcpkeepalive(struct Curl_easy *data,
     KEEPALIVE_FACTOR(optval);
     if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPALIVE,
       (void *)&optval, sizeof(optval)) < 0) {
-      infof(data, "Failed to set TCP_KEEPALIVE on fd %d", sockfd);
+      infof(data, "Failed to set TCP_KEEPALIVE on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
     }
 #endif
 #ifdef TCP_KEEPINTVL
@@ -205,7 +210,9 @@ tcpkeepalive(struct Curl_easy *data,
     KEEPALIVE_FACTOR(optval);
     if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL,
           (void *)&optval, sizeof(optval)) < 0) {
-      infof(data, "Failed to set TCP_KEEPINTVL on fd %d", sockfd);
+      infof(data, "Failed to set TCP_KEEPINTVL on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
     }
 #endif
 #endif
@@ -390,6 +397,7 @@ void Curl_sndbufset(curl_socket_t sockfd)
 }
 #endif
 
+#ifndef CURL_DISABLE_BINDLOCAL
 static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
                           curl_socket_t sockfd, int af, unsigned int scope)
 {
@@ -444,29 +452,24 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
     /* interface */
     if(!is_host) {
 #ifdef SO_BINDTODEVICE
-      /* I am not sure any other OSs than Linux that provide this feature,
-       * and at the least I cannot test. --Ben
+      /*
+       * This binds the local socket to a particular interface. This will
+       * force even requests to other local interfaces to go out the external
+       * interface. Only bind to the interface when specified as interface,
+       * not just as a hostname or ip address.
        *
-       * This feature allows one to tightly bind the local socket to a
-       * particular interface.  This will force even requests to other
-       * local interfaces to go out the external interface.
-       *
-       *
-       * Only bind to the interface when specified as interface, not just
-       * as a hostname or ip address.
-       *
-       * interface might be a VRF, eg: vrf-blue, which means it cannot be
-       * converted to an IP address and would fail Curl_if2ip. Simply try
-       * to use it straight away.
+       * The interface might be a VRF, eg: vrf-blue, which means it cannot be
+       * converted to an IP address and would fail Curl_if2ip. Simply try to
+       * use it straight away.
        */
       if(setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE,
                     dev, (curl_socklen_t)strlen(dev) + 1) == 0) {
-        /* This is typically "errno 1, error: Operation not permitted" if
-         * you're not running as root or another suitable privileged
-         * user.
-         * If it succeeds it means the parameter was a valid interface and
-         * not an IP address. Return immediately.
+        /* This is often "errno 1, error: Operation not permitted" if you're
+         * not running as root or another suitable privileged user. If it
+         * succeeds it means the parameter was a valid interface and not an IP
+         * address. Return immediately.
          */
+        infof(data, "socket successfully bound to interface '%s'", dev);
         return CURLE_OK;
       }
 #endif
@@ -632,8 +635,8 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
       port++; /* try next port */
       if(port == 0)
         break;
-      infof(data, "Bind to local port %hu failed, trying next", port - 1);
-      /* We re-use/clobber the port variable here below */
+      infof(data, "Bind to local port %d failed, trying next", port - 1);
+      /* We reuse/clobber the port variable here below */
       if(sock->sa_family == AF_INET)
         si4->sin_port = ntohs(port);
 #ifdef ENABLE_IPV6
@@ -653,6 +656,7 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
 
   return CURLE_INTERFACE_FAILED;
 }
+#endif
 
 /*
  * verifyconnect() returns TRUE if the connect really has happened.
@@ -664,7 +668,7 @@ static bool verifyconnect(curl_socket_t sockfd, int *error)
   int err = 0;
   curl_socklen_t errSize = sizeof(err);
 
-#ifdef WIN32
+#ifdef _WIN32
   /*
    * In October 2003 we effectively nullified this function on Windows due to
    * problems with it using all CPU in multi-threaded cases.
@@ -727,8 +731,6 @@ static bool verifyconnect(curl_socket_t sockfd, int *error)
 static CURLcode socket_connect_result(struct Curl_easy *data,
                                       const char *ipaddress, int error)
 {
-  char buffer[STRERROR_LEN];
-
   switch(error) {
   case EINPROGRESS:
   case EWOULDBLOCK:
@@ -745,8 +747,15 @@ static CURLcode socket_connect_result(struct Curl_easy *data,
 
   default:
     /* unknown error, fallthrough and try another address! */
-    infof(data, "Immediate connect fail for %s: %s",
-          ipaddress, Curl_strerror(error, buffer, sizeof(buffer)));
+#ifdef CURL_DISABLE_VERBOSE_STRINGS
+    (void)ipaddress;
+#else
+    {
+      char buffer[STRERROR_LEN];
+      infof(data, "Immediate connect fail for %s: %s",
+            ipaddress, Curl_strerror(error, buffer, sizeof(buffer)));
+    }
+#endif
     data->state.os_errno = error;
     /* connect failed */
     return CURLE_COULDNT_CONNECT;
@@ -775,8 +784,15 @@ struct cf_socket_ctx {
   struct curltime connected_at;      /* when socket connected/got first byte */
   struct curltime first_byte_at;     /* when first byte was recvd */
   int error;                         /* errno of last failure or 0 */
+#ifdef DEBUGBUILD
+  int wblock_percent;                /* percent of writes doing EAGAIN */
+  int wpartial_percent;              /* percent of bytes written in send */
+  int rblock_percent;                /* percent of reads doing EAGAIN */
+  size_t recv_max;                  /* max enforced read size */
+#endif
   BIT(got_first_byte);               /* if first byte was received */
   BIT(accepted);                     /* socket was accepted, not connected */
+  BIT(sock_connected);               /* socket is "connected", e.g. in UDP */
   BIT(active);
   BIT(buffer_recv);
 };
@@ -790,6 +806,34 @@ static void cf_socket_ctx_init(struct cf_socket_ctx *ctx,
   ctx->transport = transport;
   Curl_sock_assign_addr(&ctx->addr, ai, transport);
   Curl_bufq_init(&ctx->recvbuf, NW_RECV_CHUNK_SIZE, NW_RECV_CHUNKS);
+#ifdef DEBUGBUILD
+  {
+    char *p = getenv("CURL_DBG_SOCK_WBLOCK");
+    if(p) {
+      long l = strtol(p, NULL, 10);
+      if(l >= 0 && l <= 100)
+        ctx->wblock_percent = (int)l;
+    }
+    p = getenv("CURL_DBG_SOCK_WPARTIAL");
+    if(p) {
+      long l = strtol(p, NULL, 10);
+      if(l >= 0 && l <= 100)
+        ctx->wpartial_percent = (int)l;
+    }
+    p = getenv("CURL_DBG_SOCK_RBLOCK");
+    if(p) {
+      long l = strtol(p, NULL, 10);
+      if(l >= 0 && l <= 100)
+        ctx->rblock_percent = (int)l;
+    }
+    p = getenv("CURL_DBG_SOCK_RMAX");
+    if(p) {
+      long l = strtol(p, NULL, 10);
+      if(l >= 0)
+        ctx->recv_max = (size_t)l;
+    }
+  }
+#endif
 }
 
 struct reader_ctx {
@@ -836,8 +880,8 @@ static ssize_t nw_in_read(void *reader_ctx,
       nread = -1;
     }
   }
-  DEBUGF(LOG_CF(rctx->data, rctx->cf, "nw_in_read(len=%zu) -> %d, err=%d",
-               len, (int)nread, *err));
+  CURL_TRC_CF(rctx->data, rctx->cf, "nw_in_read(len=%zu) -> %d, err=%d",
+              len, (int)nread, *err);
   return nread;
 }
 
@@ -846,34 +890,14 @@ static void cf_socket_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct cf_socket_ctx *ctx = cf->ctx;
 
   if(ctx && CURL_SOCKET_BAD != ctx->sock) {
-    if(ctx->active) {
-      /* We share our socket at cf->conn->sock[cf->sockindex] when active.
-       * If it is no longer there, someone has stolen (and hopefully
-       * closed it) and we just forget about it.
-       */
-      if(ctx->sock == cf->conn->sock[cf->sockindex]) {
-        DEBUGF(LOG_CF(data, cf, "cf_socket_close(%" CURL_FORMAT_SOCKET_T
-                      ", active)", ctx->sock));
-        socket_close(data, cf->conn, !ctx->accepted, ctx->sock);
-        cf->conn->sock[cf->sockindex] = CURL_SOCKET_BAD;
-      }
-      else {
-        DEBUGF(LOG_CF(data, cf, "cf_socket_close(%" CURL_FORMAT_SOCKET_T
-                      ") no longer at conn->sock[], discarding", ctx->sock));
-        /* TODO: we do not want this to happen. Need to check which
-         * code is messing with conn->sock[cf->sockindex] */
-      }
-      ctx->sock = CURL_SOCKET_BAD;
-      if(cf->sockindex == FIRSTSOCKET)
-        cf->conn->remote_addr = NULL;
-    }
-    else {
-      /* this is our local socket, we did never publish it */
-      DEBUGF(LOG_CF(data, cf, "cf_socket_close(%" CURL_FORMAT_SOCKET_T
-                    ", not active)", ctx->sock));
-      socket_close(data, cf->conn, !ctx->accepted, ctx->sock);
-      ctx->sock = CURL_SOCKET_BAD;
-    }
+    CURL_TRC_CF(data, cf, "cf_socket_close(%" CURL_FORMAT_SOCKET_T
+                ")", ctx->sock);
+    if(ctx->sock == cf->conn->sock[cf->sockindex])
+      cf->conn->sock[cf->sockindex] = CURL_SOCKET_BAD;
+    socket_close(data, cf->conn, !ctx->accepted, ctx->sock);
+    ctx->sock = CURL_SOCKET_BAD;
+    if(ctx->active && cf->sockindex == FIRSTSOCKET)
+      cf->conn->remote_addr = NULL;
     Curl_bufq_reset(&ctx->recvbuf);
     ctx->active = FALSE;
     ctx->buffer_recv = FALSE;
@@ -889,7 +913,7 @@ static void cf_socket_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct cf_socket_ctx *ctx = cf->ctx;
 
   cf_socket_close(cf, data);
-  DEBUGF(LOG_CF(data, cf, "destroy"));
+  CURL_TRC_CF(data, cf, "destroy");
   Curl_bufq_free(&ctx->recvbuf);
   free(ctx);
   cf->ctx = NULL;
@@ -957,7 +981,6 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
   bool isconnected = FALSE;
   CURLcode result = CURLE_COULDNT_CONNECT;
   bool is_tcp;
-  const char *ipmsg;
 
   (void)data;
   DEBUGASSERT(ctx->sock == CURL_SOCKET_BAD);
@@ -973,12 +996,11 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
 #ifdef ENABLE_IPV6
   if(ctx->addr.family == AF_INET6) {
     set_ipv6_v6only(ctx->sock, 0);
-    ipmsg = "  Trying [%s]:%d...";
+    infof(data, "  Trying [%s]:%d...", ctx->r_ip, ctx->r_port);
   }
   else
 #endif
-    ipmsg = "  Trying %s:%d...";
-  infof(data, ipmsg, ctx->r_ip, ctx->r_port);
+    infof(data, "  Trying %s:%d...", ctx->r_ip, ctx->r_port);
 
 #ifdef ENABLE_IPV6
   is_tcp = (ctx->addr.family == AF_INET
@@ -1014,6 +1036,7 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
     }
   }
 
+#ifndef CURL_DISABLE_BINDLOCAL
   /* possibly bind the local end to an IP, interface or port */
   if(ctx->addr.family == AF_INET
 #ifdef ENABLE_IPV6
@@ -1031,10 +1054,11 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
       goto out;
     }
   }
+#endif
 
   /* set socket non-blocking */
   (void)curlx_nonblock(ctx->sock, TRUE);
-
+  ctx->sock_connected = (ctx->addr.socktype != SOCK_DGRAM);
 out:
   if(result) {
     if(ctx->sock != CURL_SOCKET_BAD) {
@@ -1047,8 +1071,8 @@ out:
     ctx->connected_at = Curl_now();
     cf->connected = TRUE;
   }
-  DEBUGF(LOG_CF(data, cf, "cf_socket_open() -> %d, fd=%" CURL_FORMAT_SOCKET_T,
-                result, ctx->sock));
+  CURL_TRC_CF(data, cf, "cf_socket_open() -> %d, fd=%" CURL_FORMAT_SOCKET_T,
+              result, ctx->sock);
   return result;
 }
 
@@ -1126,6 +1150,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
 
   *done = FALSE; /* a very negative world view is best */
   if(ctx->sock == CURL_SOCKET_BAD) {
+    int error;
 
     result = cf_socket_open(cf, data);
     if(result)
@@ -1138,8 +1163,12 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
 
     /* Connect TCP socket */
     rc = do_connect(cf, data, cf->conn->bits.tcp_fastopen);
+    error = SOCKERRNO;
+    set_local_ip(cf, data);
+    CURL_TRC_CF(data, cf, "local address %s port %d...",
+                ctx->l_ip, ctx->l_port);
     if(-1 == rc) {
-      result = socket_connect_result(data, ctx->r_ip, SOCKERRNO);
+      result = socket_connect_result(data, ctx->r_ip, error);
       goto out;
     }
   }
@@ -1155,7 +1184,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
   rc = SOCKET_WRITABLE(ctx->sock, 0);
 
   if(rc == 0) { /* no connection yet */
-    DEBUGF(LOG_CF(data, cf, "not connected yet"));
+    CURL_TRC_CF(data, cf, "not connected yet");
     return CURLE_OK;
   }
   else if(rc == CURL_CSELECT_OUT || cf->conn->bits.tcp_fastopen) {
@@ -1165,7 +1194,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
       set_local_ip(cf, data);
       *done = TRUE;
       cf->connected = TRUE;
-      DEBUGF(LOG_CF(data, cf, "connected"));
+      CURL_TRC_CF(data, cf, "connected");
       return CURLE_OK;
     }
   }
@@ -1177,13 +1206,14 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
 out:
   if(result) {
     if(ctx->error) {
+      set_local_ip(cf, data);
       data->state.os_errno = ctx->error;
       SET_SOCKERRNO(ctx->error);
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
       {
         char buffer[STRERROR_LEN];
-        infof(data, "connect to %s port %u failed: %s",
-              ctx->r_ip, ctx->r_port,
+        infof(data, "connect to %s port %u from %s port %d failed: %s",
+              ctx->r_ip, ctx->r_port, ctx->l_ip, ctx->l_port,
               Curl_strerror(ctx->error, buffer, sizeof(buffer)));
       }
 #endif
@@ -1209,20 +1239,22 @@ static void cf_socket_get_host(struct Curl_cfilter *cf,
   *pport = cf->conn->port;
 }
 
-static int cf_socket_get_select_socks(struct Curl_cfilter *cf,
+static void cf_socket_adjust_pollset(struct Curl_cfilter *cf,
                                       struct Curl_easy *data,
-                                      curl_socket_t *socks)
+                                      struct easy_pollset *ps)
 {
   struct cf_socket_ctx *ctx = cf->ctx;
-  int rc = GETSOCK_BLANK;
 
-  (void)data;
-  if(!cf->connected && ctx->sock != CURL_SOCKET_BAD) {
-    socks[0] = ctx->sock;
-    rc |= GETSOCK_WRITESOCK(0);
+  if(ctx->sock != CURL_SOCKET_BAD) {
+    if(!cf->connected) {
+      Curl_pollset_set_out_only(data, ps, ctx->sock);
+      CURL_TRC_CF(data, cf, "adjust_pollset(!connected) -> %d socks", ps->num);
+    }
+    else if(!ctx->active) {
+      Curl_pollset_add_in(data, ps, ctx->sock);
+      CURL_TRC_CF(data, cf, "adjust_pollset(!active) -> %d socks", ps->num);
+    }
   }
-
-  return rc;
 }
 
 static bool cf_socket_data_pending(struct Curl_cfilter *cf,
@@ -1245,10 +1277,33 @@ static ssize_t cf_socket_send(struct Curl_cfilter *cf, struct Curl_easy *data,
   struct cf_socket_ctx *ctx = cf->ctx;
   curl_socket_t fdsave;
   ssize_t nwritten;
+  size_t orig_len = len;
 
   *err = CURLE_OK;
   fdsave = cf->conn->sock[cf->sockindex];
   cf->conn->sock[cf->sockindex] = ctx->sock;
+
+#ifdef DEBUGBUILD
+  /* simulate network blocking/partial writes */
+  if(ctx->wblock_percent > 0) {
+    unsigned char c;
+    Curl_rand(data, &c, 1);
+    if(c >= ((100-ctx->wblock_percent)*256/100)) {
+      CURL_TRC_CF(data, cf, "send(len=%zu) SIMULATE EWOULDBLOCK", orig_len);
+      *err = CURLE_AGAIN;
+      nwritten = -1;
+      cf->conn->sock[cf->sockindex] = fdsave;
+      return nwritten;
+    }
+  }
+  if(cf->cft != &Curl_cft_udp && ctx->wpartial_percent > 0 && len > 8) {
+    len = len * ctx->wpartial_percent / 100;
+    if(!len)
+      len = 1;
+    CURL_TRC_CF(data, cf, "send(len=%zu) SIMULATE partial write of %zu bytes",
+                orig_len, len);
+  }
+#endif
 
 #if defined(MSG_FASTOPEN) && !defined(TCP_FASTOPEN_CONNECT) /* Linux */
   if(cf->conn->bits.tcp_fastopen) {
@@ -1288,8 +1343,8 @@ static ssize_t cf_socket_send(struct Curl_cfilter *cf, struct Curl_easy *data,
     }
   }
 
-  DEBUGF(LOG_CF(data, cf, "send(len=%zu) -> %d, err=%d",
-                len, (int)nwritten, *err));
+  CURL_TRC_CF(data, cf, "send(len=%zu) -> %d, err=%d",
+              orig_len, (int)nwritten, *err);
   cf->conn->sock[cf->sockindex] = fdsave;
   return nwritten;
 }
@@ -1306,8 +1361,29 @@ static ssize_t cf_socket_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
   fdsave = cf->conn->sock[cf->sockindex];
   cf->conn->sock[cf->sockindex] = ctx->sock;
 
+#ifdef DEBUGBUILD
+  /* simulate network blocking/partial reads */
+  if(cf->cft != &Curl_cft_udp && ctx->rblock_percent > 0) {
+    unsigned char c;
+    Curl_rand(data, &c, 1);
+    if(c >= ((100-ctx->rblock_percent)*256/100)) {
+      CURL_TRC_CF(data, cf, "recv(len=%zu) SIMULATE EWOULDBLOCK", len);
+      *err = CURLE_AGAIN;
+      nread = -1;
+      cf->conn->sock[cf->sockindex] = fdsave;
+      return nread;
+    }
+  }
+  if(cf->cft != &Curl_cft_udp && ctx->recv_max && ctx->recv_max < len) {
+    size_t orig_len = len;
+    len = ctx->recv_max;
+    CURL_TRC_CF(data, cf, "recv(len=%zu) SIMULATE max read of %zu bytes",
+                orig_len, len);
+  }
+#endif
+
   if(ctx->buffer_recv && !Curl_bufq_is_empty(&ctx->recvbuf)) {
-    DEBUGF(LOG_CF(data, cf, "recv from buffer"));
+    CURL_TRC_CF(data, cf, "recv from buffer");
     nread = Curl_bufq_read(&ctx->recvbuf, (unsigned char *)buf, len, err);
   }
   else {
@@ -1324,7 +1400,7 @@ static ssize_t cf_socket_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
       if(nwritten < 0 && !Curl_bufq_is_empty(&ctx->recvbuf)) {
         /* we have a partial read with an error. need to deliver
          * what we got, return the error later. */
-        DEBUGF(LOG_CF(data, cf, "partial read: empty buffer first"));
+        CURL_TRC_CF(data, cf, "partial read: empty buffer first");
         nread = Curl_bufq_read(&ctx->recvbuf, (unsigned char *)buf, len, err);
       }
       else if(nwritten < 0) {
@@ -1337,7 +1413,7 @@ static ssize_t cf_socket_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
         nread = 0;
       }
       else {
-        DEBUGF(LOG_CF(data, cf, "buffered %zd additional bytes", nwritten));
+        CURL_TRC_CF(data, cf, "buffered %zd additional bytes", nwritten);
         nread = Curl_bufq_read(&ctx->recvbuf, (unsigned char *)buf, len, err);
       }
     }
@@ -1347,8 +1423,8 @@ static ssize_t cf_socket_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
   }
 
 out:
-  DEBUGF(LOG_CF(data, cf, "recv(len=%zu) -> %d, err=%d", len, (int)nread,
-                *err));
+  CURL_TRC_CF(data, cf, "recv(len=%zu) -> %d, err=%d", len, (int)nread,
+              *err);
   if(nread > 0 && !ctx->got_first_byte) {
     ctx->first_byte_at = Curl_now();
     ctx->got_first_byte = TRUE;
@@ -1360,36 +1436,11 @@ out:
 static void conn_set_primary_ip(struct Curl_cfilter *cf,
                                 struct Curl_easy *data)
 {
-#ifdef HAVE_GETPEERNAME
   struct cf_socket_ctx *ctx = cf->ctx;
-  if(!(data->conn->handler->protocol & CURLPROTO_TFTP)) {
-    /* TFTP does not connect the endpoint: getpeername() failed with errno
-       107: Transport endpoint is not connected */
 
-    char buffer[STRERROR_LEN];
-    struct Curl_sockaddr_storage ssrem;
-    curl_socklen_t plen;
-    int port;
-
-    plen = sizeof(ssrem);
-    memset(&ssrem, 0, plen);
-    if(getpeername(ctx->sock, (struct sockaddr*) &ssrem, &plen)) {
-      int error = SOCKERRNO;
-      failf(data, "getpeername() failed with errno %d: %s",
-            error, Curl_strerror(error, buffer, sizeof(buffer)));
-      return;
-    }
-    if(!Curl_addr2string((struct sockaddr*)&ssrem, plen,
-                         cf->conn->primary_ip, &port)) {
-      failf(data, "ssrem inet_ntop() failed with errno %d: %s",
-            errno, Curl_strerror(errno, buffer, sizeof(buffer)));
-      return;
-    }
-  }
-#else
-  cf->conn->primary_ip[0] = 0;
   (void)data;
-#endif
+  DEBUGASSERT(sizeof(ctx->r_ip) == sizeof(cf->conn->primary_ip));
+  memcpy(cf->conn->primary_ip, ctx->r_ip, sizeof(cf->conn->primary_ip));
 }
 
 static void cf_socket_active(struct Curl_cfilter *cf, struct Curl_easy *data)
@@ -1431,6 +1482,9 @@ static CURLcode cf_socket_cntrl(struct Curl_cfilter *cf,
   case CF_CTRL_DATA_SETUP:
     Curl_persistconninfo(data, cf->conn, ctx->l_ip, ctx->l_port);
     break;
+  case CF_CTRL_FORGET_SOCKET:
+    ctx->sock = CURL_SOCKET_BAD;
+    break;
   }
   return CURLE_OK;
 }
@@ -1455,19 +1509,19 @@ static bool cf_socket_conn_is_alive(struct Curl_cfilter *cf,
 
   r = Curl_poll(pfd, 1, 0);
   if(r < 0) {
-    DEBUGF(LOG_CF(data, cf, "is_alive: poll error, assume dead"));
+    CURL_TRC_CF(data, cf, "is_alive: poll error, assume dead");
     return FALSE;
   }
   else if(r == 0) {
-    DEBUGF(LOG_CF(data, cf, "is_alive: poll timeout, assume alive"));
+    CURL_TRC_CF(data, cf, "is_alive: poll timeout, assume alive");
     return TRUE;
   }
   else if(pfd[0].revents & (POLLERR|POLLHUP|POLLPRI|POLLNVAL)) {
-    DEBUGF(LOG_CF(data, cf, "is_alive: err/hup/etc events, assume dead"));
+    CURL_TRC_CF(data, cf, "is_alive: err/hup/etc events, assume dead");
     return FALSE;
   }
 
-  DEBUGF(LOG_CF(data, cf, "is_alive: valid events, looks alive"));
+  CURL_TRC_CF(data, cf, "is_alive: valid events, looks alive");
   *input_pending = TRUE;
   return TRUE;
 }
@@ -1502,7 +1556,7 @@ static CURLcode cf_socket_query(struct Curl_cfilter *cf,
         *when = ctx->first_byte_at;
         break;
       }
-      /* FALLTHROUGH */
+      FALLTHROUGH();
     default:
       *when = ctx->connected_at;
       break;
@@ -1520,12 +1574,12 @@ static CURLcode cf_socket_query(struct Curl_cfilter *cf,
 struct Curl_cftype Curl_cft_tcp = {
   "TCP",
   CF_TYPE_IP_CONNECT,
-  CURL_LOG_DEFAULT,
+  CURL_LOG_LVL_NONE,
   cf_socket_destroy,
   cf_tcp_connect,
   cf_socket_close,
   cf_socket_get_host,
-  cf_socket_get_select_socks,
+  cf_socket_adjust_pollset,
   cf_socket_data_pending,
   cf_socket_send,
   cf_socket_recv,
@@ -1548,7 +1602,7 @@ CURLcode Curl_cf_tcp_create(struct Curl_cfilter **pcf,
   (void)data;
   (void)conn;
   DEBUGASSERT(transport == TRNSPRT_TCP);
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
@@ -1576,15 +1630,22 @@ static CURLcode cf_udp_setup_quic(struct Curl_cfilter *cf,
   /* QUIC needs a connected socket, nonblocking */
   DEBUGASSERT(ctx->sock != CURL_SOCKET_BAD);
 
+#if defined(__APPLE__) && defined(USE_OPENSSL_QUIC)
+  (void)rc;
+  /* On macOS OpenSSL QUIC fails on connected sockets.
+   * see: <https://github.com/openssl/openssl/issues/23251> */
+#else
   rc = connect(ctx->sock, &ctx->addr.sa_addr, ctx->addr.addrlen);
   if(-1 == rc) {
     return socket_connect_result(data, ctx->r_ip, SOCKERRNO);
   }
+  ctx->sock_connected = TRUE;
+#endif
   set_local_ip(cf, data);
-  DEBUGF(LOG_CF(data, cf, "%s socket %" CURL_FORMAT_SOCKET_T
-                " connected: [%s:%d] -> [%s:%d]",
-                (ctx->transport == TRNSPRT_QUIC)? "QUIC" : "UDP",
-                ctx->sock, ctx->l_ip, ctx->l_port, ctx->r_ip, ctx->r_port));
+  CURL_TRC_CF(data, cf, "%s socket %" CURL_FORMAT_SOCKET_T
+              " connected: [%s:%d] -> [%s:%d]",
+              (ctx->transport == TRNSPRT_QUIC)? "QUIC" : "UDP",
+              ctx->sock, ctx->l_ip, ctx->l_port, ctx->r_ip, ctx->r_port);
 
   (void)curlx_nonblock(ctx->sock, TRUE);
   switch(ctx->addr.family) {
@@ -1624,7 +1685,7 @@ static CURLcode cf_udp_connect(struct Curl_cfilter *cf,
   if(ctx->sock == CURL_SOCKET_BAD) {
     result = cf_socket_open(cf, data);
     if(result) {
-      DEBUGF(LOG_CF(data, cf, "cf_udp_connect(), open failed -> %d", result));
+      CURL_TRC_CF(data, cf, "cf_udp_connect(), open failed -> %d", result);
       goto out;
     }
 
@@ -1632,13 +1693,13 @@ static CURLcode cf_udp_connect(struct Curl_cfilter *cf,
       result = cf_udp_setup_quic(cf, data);
       if(result)
         goto out;
-      DEBUGF(LOG_CF(data, cf, "cf_udp_connect(), opened socket=%"
-                    CURL_FORMAT_SOCKET_T " (%s:%d)",
-                    ctx->sock, ctx->l_ip, ctx->l_port));
+      CURL_TRC_CF(data, cf, "cf_udp_connect(), opened socket=%"
+                  CURL_FORMAT_SOCKET_T " (%s:%d)",
+                  ctx->sock, ctx->l_ip, ctx->l_port);
     }
     else {
-      DEBUGF(LOG_CF(data, cf, "cf_udp_connect(), opened socket=%"
-                    CURL_FORMAT_SOCKET_T " (unconnected)", ctx->sock));
+      CURL_TRC_CF(data, cf, "cf_udp_connect(), opened socket=%"
+                  CURL_FORMAT_SOCKET_T " (unconnected)", ctx->sock);
     }
     *done = TRUE;
     cf->connected = TRUE;
@@ -1650,12 +1711,12 @@ out:
 struct Curl_cftype Curl_cft_udp = {
   "UDP",
   CF_TYPE_IP_CONNECT,
-  CURL_LOG_DEFAULT,
+  CURL_LOG_LVL_NONE,
   cf_socket_destroy,
   cf_udp_connect,
   cf_socket_close,
   cf_socket_get_host,
-  cf_socket_get_select_socks,
+  cf_socket_adjust_pollset,
   cf_socket_data_pending,
   cf_socket_send,
   cf_socket_recv,
@@ -1678,7 +1739,7 @@ CURLcode Curl_cf_udp_create(struct Curl_cfilter **pcf,
   (void)data;
   (void)conn;
   DEBUGASSERT(transport == TRNSPRT_UDP || transport == TRNSPRT_QUIC);
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
@@ -1701,12 +1762,12 @@ out:
 struct Curl_cftype Curl_cft_unix = {
   "UNIX",
   CF_TYPE_IP_CONNECT,
-  CURL_LOG_DEFAULT,
+  CURL_LOG_LVL_NONE,
   cf_socket_destroy,
   cf_tcp_connect,
   cf_socket_close,
   cf_socket_get_host,
-  cf_socket_get_select_socks,
+  cf_socket_adjust_pollset,
   cf_socket_data_pending,
   cf_socket_send,
   cf_socket_recv,
@@ -1729,7 +1790,7 @@ CURLcode Curl_cf_unix_create(struct Curl_cfilter **pcf,
   (void)data;
   (void)conn;
   DEBUGASSERT(transport == TRNSPRT_UNIX);
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
@@ -1765,12 +1826,12 @@ static CURLcode cf_tcp_accept_connect(struct Curl_cfilter *cf,
 struct Curl_cftype Curl_cft_tcp_accept = {
   "TCP-ACCEPT",
   CF_TYPE_IP_CONNECT,
-  CURL_LOG_DEFAULT,
+  CURL_LOG_LVL_NONE,
   cf_socket_destroy,
   cf_tcp_accept_connect,
   cf_socket_close,
   cf_socket_get_host,              /* TODO: not accurate */
-  cf_socket_get_select_socks,
+  cf_socket_adjust_pollset,
   cf_socket_data_pending,
   cf_socket_send,
   cf_socket_recv,
@@ -1792,7 +1853,7 @@ CURLcode Curl_conn_tcp_listen_set(struct Curl_easy *data,
   Curl_conn_cf_discard_all(data, conn, sockindex);
   DEBUGASSERT(conn->sock[sockindex] == CURL_SOCKET_BAD);
 
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
@@ -1810,8 +1871,8 @@ CURLcode Curl_conn_tcp_listen_set(struct Curl_easy *data,
   ctx->active = TRUE;
   ctx->connected_at = Curl_now();
   cf->connected = TRUE;
-  DEBUGF(LOG_CF(data, cf, "Curl_conn_tcp_listen_set(%"
-                CURL_FORMAT_SOCKET_T ")", ctx->sock));
+  CURL_TRC_CF(data, cf, "Curl_conn_tcp_listen_set(%"
+              CURL_FORMAT_SOCKET_T ")", ctx->sock);
 
 out:
   if(result) {
@@ -1875,9 +1936,9 @@ CURLcode Curl_conn_tcp_accepted_set(struct Curl_easy *data,
   ctx->accepted = TRUE;
   ctx->connected_at = Curl_now();
   cf->connected = TRUE;
-  DEBUGF(LOG_CF(data, cf, "accepted_set(sock=%" CURL_FORMAT_SOCKET_T
-                ", remote=%s port=%d)",
-                ctx->sock, ctx->r_ip, ctx->r_port));
+  CURL_TRC_CF(data, cf, "accepted_set(sock=%" CURL_FORMAT_SOCKET_T
+              ", remote=%s port=%d)",
+              ctx->sock, ctx->r_ip, ctx->r_port);
 
   return CURLE_OK;
 }
@@ -1922,4 +1983,3 @@ CURLcode Curl_cf_socket_peek(struct Curl_cfilter *cf,
   }
   return CURLE_FAILED_INIT;
 }
-

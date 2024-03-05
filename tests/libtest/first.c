@@ -35,10 +35,6 @@
 #  include <fcntl.h> /* for setmode() */
 #endif
 
-#ifdef USE_NSS
-#include <nspr.h>
-#endif
-
 #ifdef CURLDEBUG
 #  define MEMDEBUG_NODEFINES
 #  include "memdebug.h"
@@ -69,12 +65,16 @@ int select_wrapper(int nfds, fd_set *rd, fd_set *wr, fd_set *exc,
 
 void wait_ms(int ms)
 {
+  if(ms < 0)
+    return;
 #ifdef USE_WINSOCK
-  Sleep(ms);
+  Sleep((DWORD)ms);
 #else
-  struct timeval t;
-  curlx_mstotv(&t, ms);
-  select_wrapper(0, NULL, NULL, NULL, &t);
+  {
+    struct timeval t;
+    curlx_mstotv(&t, ms);
+    select_wrapper(0, NULL, NULL, NULL, &t);
+  }
 #endif
 }
 
@@ -176,14 +176,9 @@ int main(int argc, char **argv)
   fprintf(stderr, "URL: %s\n", URL);
 
   result = test(URL);
+  fprintf(stderr, "Test ended with result %d\n", result);
 
-#ifdef USE_NSS
-  if(PR_Initialized())
-    /* prevent valgrind from reporting possibly lost memory (fd cache, ...) */
-    PR_Cleanup();
-#endif
-
-#ifdef WIN32
+#ifdef _WIN32
   /* flush buffers of all streams regardless of mode */
   _flushall();
 #endif

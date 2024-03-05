@@ -103,9 +103,9 @@ server, do one of the following:
        certificate store or use it stand-alone as described. Just remember that
        the security is no better than the way you obtained the certificate.
 
- 4. If you are using the curl command line tool, you can specify your own CA
-    cert file by setting the environment variable `CURL_CA_BUNDLE` to the path
-    of your choice.
+ 4. If you are using the curl command line tool and the TLS backend is not
+    Schannel then you can specify your own CA cert file by setting the
+    environment variable `CURL_CA_BUNDLE` to the path of your choice.
 
     If you are using the curl command line tool on Windows, curl will search
     for a CA cert file named "curl-ca-bundle.crt" in these directories and in
@@ -116,36 +116,16 @@ server, do one of the following:
       4. Windows Directory (e.g. C:\windows)
       5. all directories along %PATH%
 
- 5. Get a better/different/newer CA cert bundle! One option is to extract the
-    one a recent Firefox browser uses by running 'make ca-bundle' in the curl
-    build tree root, or possibly download a version that was generated this
-    way for you: [CA Extract](https://curl.se/docs/caextract.html)
+ 5. Get another CA cert bundle. One option is to extract the one a recent
+    Firefox browser uses by running 'make ca-bundle' in the curl build tree
+    root, or possibly download a version that was generated this way for you:
+    [CA Extract](https://curl.se/docs/caextract.html)
 
 Neglecting to use one of the above methods when dealing with a server using a
 certificate that is not signed by one of the certificates in the installed CA
 certificate store, will cause SSL to report an error ("certificate verify
 failed") during the handshake and SSL will then refuse further communication
 with that server.
-
-Certificate Verification with NSS
----------------------------------
-
-If libcurl was built with NSS support, then depending on the OS distribution,
-it is probably required to take some additional steps to use the system-wide
-CA cert db. Red Hat ships with an additional module, libnsspem.so, which
-enables NSS to read the OpenSSL PEM CA bundle. On openSUSE you can install
-p11-kit-nss-trust which makes NSS use the system wide CA certificate
-store. NSS also has a new [database
-format](https://wiki.mozilla.org/NSS_Shared_DB).
-
-Starting with version 7.19.7, libcurl automatically adds the `sql:` prefix to
-the certificate database directory (either the set default `/etc/pki/nssdb` or
-the directory configured with the `SSL_DIR` environment variable). To check
-which certificate database format your distribution provides, examine the
-default certificate database location: `/etc/pki/nssdb`; the new certificate
-database format can be identified by the filenames `cert9.db`, `key4.db`,
-`pkcs11.txt`; filenames of older versions are `cert8.db`, `key3.db`,
-`secmod.db`.
 
 Certificate Verification with Schannel and Secure Transport
 -----------------------------------------------------------

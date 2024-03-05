@@ -218,7 +218,6 @@ static CURLcode dohprobe(struct Curl_easy *data,
                          struct curl_slist *headers)
 {
   struct Curl_easy *doh = NULL;
-  char *nurl = NULL;
   CURLcode result = CURLE_OK;
   timediff_t timeout_ms;
   DOHcode d = doh_encode(host, dnstype, p->dohbuffer, sizeof(p->dohbuffer),
@@ -242,6 +241,7 @@ static CURLcode dohprobe(struct Curl_easy *data,
     /* pass in the struct pointer via a local variable to please coverity and
        the gcc typecheck helpers */
     struct dynbuf *resp = &p->serverdoh;
+    doh->state.internal = true;
     ERROR_CHECK_SETOPT(CURLOPT_URL, url);
     ERROR_CHECK_SETOPT(CURLOPT_DEFAULT_PROTOCOL, "https");
     ERROR_CHECK_SETOPT(CURLOPT_WRITEFUNCTION, doh_write_cb);
@@ -251,6 +251,7 @@ static CURLcode dohprobe(struct Curl_easy *data,
     ERROR_CHECK_SETOPT(CURLOPT_HTTPHEADER, headers);
 #ifdef USE_HTTP2
     ERROR_CHECK_SETOPT(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+    ERROR_CHECK_SETOPT(CURLOPT_PIPEWAIT, 1L);
 #endif
 #ifndef CURLDEBUG
     /* enforce HTTPS if not debug */
@@ -307,6 +308,10 @@ static CURLcode dohprobe(struct Curl_easy *data,
       ERROR_CHECK_SETOPT(CURLOPT_SSL_CTX_FUNCTION, data->set.ssl.fsslctx);
     if(data->set.ssl.fsslctxp)
       ERROR_CHECK_SETOPT(CURLOPT_SSL_CTX_DATA, data->set.ssl.fsslctxp);
+    if(data->set.fdebug)
+      ERROR_CHECK_SETOPT(CURLOPT_DEBUGFUNCTION, data->set.fdebug);
+    if(data->set.debugdata)
+      ERROR_CHECK_SETOPT(CURLOPT_DEBUGDATA, data->set.debugdata);
     if(data->set.str[STRING_SSL_EC_CURVES]) {
       ERROR_CHECK_SETOPT(CURLOPT_SSL_EC_CURVES,
                          data->set.str[STRING_SSL_EC_CURVES]);
@@ -334,9 +339,10 @@ static CURLcode dohprobe(struct Curl_easy *data,
     doh->set.dohfor = data; /* identify for which transfer this is done */
     p->easy = doh;
 
-    /* DoH private_data must be null because the user must have a way to
-       distinguish their transfer's handle from DoH handles in user
-       callbacks (ie SSL CTX callback). */
+    /* DoH handles must not inherit private_data. The handles may be passed to
+       the user via callbacks and the user will be able to identify them as
+       internal handles because private data is not set. The user can then set
+       private_data via CURLOPT_PRIVATE if they so choose. */
     DEBUGASSERT(!doh->set.private_data);
 
     if(curl_multi_add_handle(multi, doh))
@@ -344,11 +350,9 @@ static CURLcode dohprobe(struct Curl_easy *data,
   }
   else
     goto error;
-  free(nurl);
   return CURLE_OK;
 
 error:
-  free(nurl);
   Curl_close(&doh);
   return result;
 }
@@ -367,7 +371,7 @@ struct Curl_addrinfo *Curl_doh(struct Curl_easy *data,
   int slot;
   struct dohdata *dohp;
   struct connectdata *conn = data->conn;
-  *waitp = TRUE; /* this never returns synchronously */
+  *waitp = FALSE;
   (void)hostname;
   (void)port;
 
@@ -375,7 +379,7 @@ struct Curl_addrinfo *Curl_doh(struct Curl_easy *data,
   DEBUGASSERT(conn);
 
   /* start clean, consider allocating this struct on demand */
-  dohp = data->req.doh = calloc(sizeof(struct dohdata), 1);
+  dohp = data->req.doh = calloc(1, sizeof(struct dohdata));
   if(!dohp)
     return NULL;
 
@@ -407,12 +411,14 @@ struct Curl_addrinfo *Curl_doh(struct Curl_easy *data,
     dohp->pending++;
   }
 #endif
+  *waitp = TRUE; /* this never returns synchronously */
   return NULL;
 
 error:
   curl_slist_free_all(dohp->headers);
   data->req.doh->headers = NULL;
   for(slot = 0; slot < DOH_PROBE_SLOTS; slot++) {
+    (void)curl_multi_remove_handle(data->multi, dohp->probe[slot].easy);
     Curl_close(&dohp->probe[slot].easy);
   }
   Curl_safefree(data->req.doh);
@@ -438,7 +444,7 @@ static DOHcode skipqname(const unsigned char *doh, size_t dohlen,
       return DOH_DNS_BAD_LABEL;
     if(dohlen < (*indexp + 1 + length))
       return DOH_DNS_OUT_OF_RANGE;
-    *indexp += 1 + length;
+    *indexp += (unsigned int)(1 + length);
   } while(length);
   return DOH_OK;
 }
@@ -450,14 +456,15 @@ static unsigned short get16bit(const unsigned char *doh, int index)
 
 static unsigned int get32bit(const unsigned char *doh, int index)
 {
-   /* make clang and gcc optimize this to bswap by incrementing
-      the pointer first. */
-   doh += index;
+  /* make clang and gcc optimize this to bswap by incrementing
+     the pointer first. */
+  doh += index;
 
-   /* avoid undefined behavior by casting to unsigned before shifting
-      24 bits, possibly into the sign bit. codegen is same, but
-      ub sanitizer won't be upset */
-  return ( (unsigned)doh[0] << 24) | (doh[1] << 16) |(doh[2] << 8) | doh[3];
+  /* avoid undefined behavior by casting to unsigned before shifting
+     24 bits, possibly into the sign bit. codegen is same, but
+     ub sanitizer won't be upset */
+  return ((unsigned)doh[0] << 24) | ((unsigned)doh[1] << 16) |
+         ((unsigned)doh[2] << 8) | doh[3];
 }
 
 static DOHcode store_a(const unsigned char *doh, int index, struct dohentry *d)
@@ -782,8 +789,8 @@ static void showdoh(struct Curl_easy *data,
  * must be an associated call later to Curl_freeaddrinfo().
  */
 
-static struct Curl_addrinfo *
-doh2ai(const struct dohentry *de, const char *hostname, int port)
+static CURLcode doh2ai(const struct dohentry *de, const char *hostname,
+                       int port, struct Curl_addrinfo **aip)
 {
   struct Curl_addrinfo *ai;
   struct Curl_addrinfo *prevai = NULL;
@@ -796,9 +803,10 @@ doh2ai(const struct dohentry *de, const char *hostname, int port)
   int i;
   size_t hostlen = strlen(hostname) + 1; /* include null-terminator */
 
-  if(!de)
-    /* no input == no output! */
-    return NULL;
+  DEBUGASSERT(de);
+
+  if(!de->numaddr)
+    return CURLE_COULDNT_RESOLVE_HOST;
 
   for(i = 0; i < de->numaddr; i++) {
     size_t ss_size;
@@ -871,8 +879,9 @@ doh2ai(const struct dohentry *de, const char *hostname, int port)
     Curl_freeaddrinfo(firstai);
     firstai = NULL;
   }
+  *aip = firstai;
 
-  return firstai;
+  return result;
 }
 
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
@@ -927,10 +936,12 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
                             p->dnstype,
                             &de);
       Curl_dyn_free(&p->serverdoh);
+#ifndef CURL_DISABLE_VERBOSE_STRINGS
       if(rc[slot]) {
         infof(data, "DoH: %s type %s for %s", doh_strerror(rc[slot]),
               type2name(p->dnstype), dohp->host);
       }
+#endif
     } /* next slot */
 
     result = CURLE_COULDNT_RESOLVE_HOST; /* until we know better */
@@ -942,10 +953,10 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
       infof(data, "DoH Host name: %s", dohp->host);
       showdoh(data, &de);
 
-      ai = doh2ai(&de, dohp->host, dohp->port);
-      if(!ai) {
+      result = doh2ai(&de, dohp->host, dohp->port, &ai);
+      if(result) {
         de_cleanup(&de);
-        return CURLE_OUT_OF_MEMORY;
+        return result;
       }
 
       if(data->share)

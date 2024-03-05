@@ -1,10 +1,10 @@
 # Anatomy of a curl security advisory
 
-As described in the `SECURITY-PROCESS.md` document, when a security
-vulnerability has been reported to the project and confirmed, we author an
-advisory document for for the issue. It should ideally be written in
-cooperation with the reporter to make sure all the angles and details of the
-problem are gathered and described correctly and succinctly.
+As described in the [Security Process](https://curl.se/dev/secprocess.html)
+document, when a security vulnerability has been reported to the project and
+confirmed, we author an advisory document for the issue. It should ideally
+be written in cooperation with the reporter to make sure all the angles and
+details of the problem are gathered and described correctly and succinctly.
 
 ## New document
 
@@ -35,7 +35,7 @@ The eleven fields for each CVE in `vuln.pm` are, in order:
 
 ### `Makefile`
 
-The new CVE web page file name needs to be added in the `Makefile`'s `CVELIST`
+The new CVE webpage filename needs to be added in the `Makefile`'s `CVELIST`
 macro.
 
 When the markdown is in place and the `Makefile` and `vuln.pm` are updated,

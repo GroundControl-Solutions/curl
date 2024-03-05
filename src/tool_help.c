@@ -73,8 +73,6 @@ static const struct category_descriptors categories[] = {
   {NULL, NULL, CURLHELP_HIDDEN}
 };
 
-extern const struct helptxt helptext[];
-
 
 static void print_category(curlhelp_t category)
 {
@@ -164,7 +162,7 @@ void tool_version_info(void)
 {
   const char *const *builtin;
   if(is_debug())
-    fprintf(stderr, "WARNING: this libcurl is Debug-enabled, "
+    fprintf(tool_stderr, "WARNING: this libcurl is Debug-enabled, "
             "do not use in production\n\n");
 
   printf(CURL_ID "%s\n", curl_version());
@@ -175,12 +173,30 @@ void tool_version_info(void)
   printf("Release-Date: %s\n", LIBCURL_TIMESTAMP);
 #endif
   if(built_in_protos[0]) {
+    const char *insert = NULL;
+    /* we have ipfs and ipns support if libcurl has http support */
+    for(builtin = built_in_protos; *builtin; ++builtin) {
+      if(insert) {
+        /* update insertion so ipfs will be printed in alphabetical order */
+        if(strcmp(*builtin, "ipfs") < 0)
+          insert = *builtin;
+        else
+          break;
+      }
+      else if(!strcmp(*builtin, "http")) {
+        insert = *builtin;
+      }
+    }
     printf("Protocols:");
     for(builtin = built_in_protos; *builtin; ++builtin) {
       /* Special case: do not list rtmp?* protocols.
          They may only appear together with "rtmp" */
       if(!curl_strnequal(*builtin, "rtmp", 4) || !builtin[0][4])
         printf(" %s", *builtin);
+      if(insert && insert == *builtin) {
+        printf(" ipfs ipns");
+        insert = NULL;
+      }
     }
     puts(""); /* newline */
   }

@@ -60,7 +60,7 @@ Source code in curl may never be wider than 79 columns and there are two
 reasons for maintaining this even in the modern era of large and high
 resolution screens:
 
-1. Narrower columns are easier to read than wide ones. There's a reason
+1. Narrower columns are easier to read than wide ones. There is a reason
    newspapers have used columns for decades or centuries.
 
 2. Narrower columns allow developers to easier show multiple pieces of code
@@ -221,7 +221,7 @@ too long, the statement too hard to read, or due to other style guidelines
 above. In such a case the statement will span multiple lines.
 
 If a continuation line is part of an expression or sub-expression then you
-should align on the appropriate column so that it's easy to tell what part of
+should align on the appropriate column so that it is easy to tell what part of
 the statement it is. Operators should not start continuation lines. In other
 cases follow the 2-space indent guideline. Here are some examples from
 libcurl:

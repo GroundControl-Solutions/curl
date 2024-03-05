@@ -25,7 +25,7 @@ set(TARGET_LABEL_PREFIX "Test ")
 
 function(setup_test TEST_NAME)          # ARGN are the files in the test
 
-  if(NOT BUILD_SHARED_LIBS)
+  if(LIB_SELECTED STREQUAL LIB_STATIC)
     # These are part of the libcurl static lib. Do not compile/link them again.
     list(REMOVE_ITEM ARGN ${WARNLESS} ${MULTIBYTE} ${TIMEDIFF})
   endif()
@@ -44,7 +44,7 @@ function(setup_test TEST_NAME)          # ARGN are the files in the test
     include_directories(${CARES_INCLUDE_DIR})
   endif()
 
-  target_link_libraries(${TEST_NAME} libcurl ${CURL_LIBS})
+  target_link_libraries(${TEST_NAME} ${LIB_SELECTED} ${CURL_LIBS})
 
   set_target_properties(${TEST_NAME}
     PROPERTIES COMPILE_DEFINITIONS ${UPPER_TEST_NAME})
@@ -67,7 +67,7 @@ endforeach()
 # Allows for hostname override to make tests machine independent.
 # TODO this cmake build assumes a shared build, detect static linking here!
 if(NOT WIN32)
-  add_library(hostname MODULE EXCLUDE_FROM_ALL sethostname.c sethostname.h)
+  add_library(hostname MODULE EXCLUDE_FROM_ALL sethostname.c)
   add_dependencies(testdeps hostname)
   # Output to .libs for compatibility with autotools, the test data expects a
   # library at (tests)/libtest/.libs/libhostname.so

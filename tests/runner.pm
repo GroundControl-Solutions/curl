@@ -115,7 +115,7 @@ our $DBGCURL=$CURL; #"../src/.libs/curl";  # alternative for debugging
 our $valgrind_logfile="--log-file";  # the option name for valgrind >=3
 our $valgrind_tool="--tool=memcheck";
 our $gdb = checktestcmd("gdb");
-our $gdbthis;      # run test case with gdb debugger
+our $gdbthis = 0;  # run test case with debugger (gdb or lldb)
 our $gdbxwin;      # use windowed gdb when using gdb
 
 # torture test variables
@@ -126,7 +126,7 @@ our $tortalloc;
 my %oldenv;       # environment variables before test is started
 my $UNITDIR="./unit";
 my $CURLLOG="$LOGDIR/commands.log"; # all command lines run
-my $defserverlogslocktimeout = 2; # timeout to await server logs lock removal
+my $defserverlogslocktimeout = 5; # timeout to await server logs lock removal
 my $defpostcommanddelay = 0; # delay between command and postcheck sections
 my $multiprocess;   # nonzero with a separate test runner process
 
@@ -300,8 +300,13 @@ sub prepro {
     my $show = 1;
     my @out;
     my $data_crlf;
+    my @pshow;
+    my @altshow;
+    my $plvl;
+    my $line;
     for my $s (@entiretest) {
         my $f = $s;
+        $line++;
         if($s =~ /^ *%if (.*)/) {
             my $cond = $1;
             my $rev = 0;
@@ -311,15 +316,38 @@ sub prepro {
                 $rev = 1;
             }
             $rev ^= $feature{$cond} ? 1 : 0;
-            $show = $rev;
+            push @pshow, $show; # push the previous state
+            $plvl++;
+            if($show) {
+                # only if this was showing before we can allow the alternative
+                # to go showing as well
+                push @altshow, $rev ^ 1; # push the reversed show state
+            }
+            else {
+                push @altshow, 0; # the alt should still hide
+            }
+            if($show) {
+                # we only allow show if already showing
+                $show = $rev;
+            }
             next;
         }
         elsif($s =~ /^ *%else/) {
-            $show ^= 1;
+            if(!$plvl) {
+                print STDERR "error: test$testnum:$line: %else no %if\n";
+                last;
+            }
+            $show = pop @altshow;
+            push @altshow, $show; # put it back for consistency
             next;
         }
         elsif($s =~ /^ *%endif/) {
-            $show = 1;
+            if(!$plvl--) {
+                print STDERR "error: test$testnum:$line: %endif had no %if\n";
+                last;
+            }
+            $show = pop @pshow;
+            pop @altshow; # not used here but we must pop it
             next;
         }
         if($show) {
@@ -725,7 +753,8 @@ sub singletest_prepare {
             my $path = $filename;
             # cut off the file name part
             $path =~ s/^(.*)\/[^\/]*/$1/;
-            my $nparts = scalar(split(/\//, $LOGDIR));
+            my @ldparts = split(/\//, $LOGDIR);
+            my $nparts = @ldparts;
             my @parts = split(/\//, $path);
             if(join("/", @parts[0..$nparts-1]) eq $LOGDIR) {
                 # the file is in $LOGDIR/
@@ -916,9 +945,16 @@ sub singletest_run {
     if($gdbthis) {
         my $gdbinit = "$TESTDIR/gdbinit$testnum";
         open(my $gdbcmd, ">", "$LOGDIR/gdbcmd") || die "Failure writing gdb file";
-        print $gdbcmd "set args $cmdargs\n";
-        print $gdbcmd "show args\n";
-        print $gdbcmd "source $gdbinit\n" if -e $gdbinit;
+        if($gdbthis == 1) {
+            # gdb mode
+            print $gdbcmd "set args $cmdargs\n";
+            print $gdbcmd "show args\n";
+            print $gdbcmd "source $gdbinit\n" if -e $gdbinit;
+        }
+        else {
+            # lldb mode
+            print $gdbcmd "set args $cmdargs\n";
+        }
         close($gdbcmd) || die "Failure writing gdb file";
     }
 
@@ -934,9 +970,16 @@ sub singletest_run {
                           $testnum,
                           "$gdb --directory $LIBDIR " . shell_quote($DBGCURL) . " -x $LOGDIR/gdbcmd");
     }
-    elsif($gdbthis) {
+    elsif($gdbthis == 1) {
+        # gdb
         my $GDBW = ($gdbxwin) ? "-w" : "";
         runclient("$gdb --directory $LIBDIR " . shell_quote($DBGCURL) . " $GDBW -x $LOGDIR/gdbcmd");
+        $cmdres=0; # makes it always continue after a debugged run
+    }
+    elsif($gdbthis == 2) {
+        # $gdb is "lldb"
+        print "runs lldb -- $CURL $cmdargs\n";
+        runclient("lldb -- $CURL $cmdargs");
         $cmdres=0; # makes it always continue after a debugged run
     }
     else {
@@ -1363,7 +1406,7 @@ sub ipcrecv {
     # Decode the function name and arguments
     my $argsarrayref = thaw $buf;
 
-    # The name of the function to call is the frist argument
+    # The name of the function to call is the first argument
     my $funcname = shift @$argsarrayref;
 
     # print "ipcrecv $funcname\n";

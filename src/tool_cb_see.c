@@ -67,13 +67,13 @@ int tool_seek_cb(void *userdata, curl_off_t offset, int whence)
       /* this code path doesn't support other types */
       return CURL_SEEKFUNC_FAIL;
 
-    if(LSEEK_ERROR == lseek(in->fd, 0, SEEK_SET))
+    if(LSEEK_ERROR == lseek(per->infd, 0, SEEK_SET))
       /* couldn't rewind to beginning */
       return CURL_SEEKFUNC_FAIL;
 
     while(left) {
       long step = (left > OUR_MAX_SEEK_O) ? OUR_MAX_SEEK_L : (long)left;
-      if(LSEEK_ERROR == lseek(in->fd, step, SEEK_CUR))
+      if(LSEEK_ERROR == lseek(per->infd, step, SEEK_CUR))
         /* couldn't seek forwards the desired amount */
         return CURL_SEEKFUNC_FAIL;
       left -= step;
@@ -92,21 +92,6 @@ int tool_seek_cb(void *userdata, curl_off_t offset, int whence)
 }
 
 #ifdef USE_TOOL_FTRUNCATE
-
-#ifdef __BORLANDC__
-/* 64-bit lseek-like function unavailable */
-#  define _lseeki64(hnd,ofs,whence) lseek(hnd,ofs,whence)
-#endif
-
-#ifdef __POCC__
-#  if(__POCC__ < 450)
-/* 64-bit lseek-like function unavailable */
-#    define _lseeki64(hnd,ofs,whence) _lseek(hnd,ofs,whence)
-#  else
-#    undef _lseeki64
-#    define _lseeki64(hnd,ofs,whence) _lseek64(hnd,ofs,whence)
-#  endif
-#endif
 
 #ifdef _WIN32_WCE
 /* 64-bit lseek-like function unavailable */
