@@ -1,5 +1,5 @@
 ---
-c: Copyright (C) Daniel Stenberg, <daniel.se>, et al.
+c: Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 SPDX-License-Identifier: curl
 Title: CURLSHOPT_SHARE
 Section: 3
@@ -9,6 +9,9 @@ See-also:
   - curl_share_cleanup (3)
   - curl_share_init (3)
   - curl_share_setopt (3)
+Protocol:
+  - All
+Added-in: 7.10.3
 ---
 
 # NAME
@@ -27,7 +30,7 @@ CURLSHcode curl_share_setopt(CURLSH *share, CURLSHOPT_SHARE, long type);
 
 The *type* parameter specifies what specific data that should be shared
 and kept in the share object that was created with curl_share_init(3).
-The given *type* must be be one of the values described below. You can set
+The given *type* must be one of the values described below. You can set
 CURLSHOPT_SHARE(3) multiple times with different data arguments to have
 the share object share multiple types of data. Unset a type again by setting
 CURLSHOPT_UNSHARE(3).
@@ -37,6 +40,8 @@ CURLSHOPT_UNSHARE(3).
 Cookie data is shared across the easy handles using this shared object. Note
 that this does not activate an easy handle's cookie handling. You can do that
 separately by using CURLOPT_COOKIEFILE(3) for example.
+
+It is not supported to share cookies between multiple concurrent threads.
 
 ## CURL_LOCK_DATA_DNS
 
@@ -52,6 +57,8 @@ the same server. Note SSL session IDs are reused within the same easy handle
 by default. Note this symbol was added in 7.10.3 but was not implemented until
 7.23.0.
 
+It is not supported to share SSL sessions between multiple concurrent threads.
+
 ## CURL_LOCK_DATA_CONNECT
 
 Put the connection cache in the share object and make all easy handles using
@@ -59,9 +66,9 @@ this share object share the connection cache.
 
 It is not supported to share connections between multiple concurrent threads.
 
-Connections that are used for HTTP/1.1 Pipelining or HTTP/2 multiplexing only
-get additional transfers added to them if the existing connection is held by
-the same multi or easy handle. libcurl does not support doing HTTP/2 streams
+Connections that are used for HTTP/2 or HTTP/3 multiplexing only get
+additional transfers added to them if the existing connection is held by the
+same multi or easy handle. libcurl does not support doing multiplexed streams
 in different threads using a shared connection.
 
 Support for **CURL_LOCK_DATA_CONNECT** was added in 7.57.0, but the symbol
@@ -89,9 +96,7 @@ It is not supported to share the HSTS between multiple concurrent threads.
 
 Added in 7.88.0
 
-# PROTOCOLS
-
-All
+# %PROTOCOLS%
 
 # EXAMPLE
 
@@ -106,9 +111,7 @@ int main(void)
 }
 ~~~
 
-# AVAILABILITY
-
-Added in 7.10
+# %AVAILABILITY%
 
 # RETURN VALUE
 
