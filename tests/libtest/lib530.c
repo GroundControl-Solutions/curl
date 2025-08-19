@@ -38,15 +38,13 @@
 
 #define TEST_HANG_TIMEOUT 60 * 1000
 
-struct Sockets
-{
+struct Sockets {
   curl_socket_t *sockets;
   int count;      /* number of sockets actually stored in array */
   int max_count;  /* max number of sockets that fit in allocated array */
 };
 
-struct ReadWriteSockets
-{
+struct ReadWriteSockets {
   struct Sockets read, write;
 };
 
@@ -58,7 +56,7 @@ static void removeFd(struct Sockets *sockets, curl_socket_t fd, int mention)
   int i;
 
   if(mention)
-    fprintf(stderr, "Remove socket fd %d\n", (int) fd);
+    curl_mfprintf(stderr, "Remove socket fd %d\n", (int) fd);
 
   for(i = 0; i < sockets->count; ++i) {
     if(sockets->sockets[i] == fd) {
@@ -80,7 +78,7 @@ static int addFd(struct Sockets *sockets, curl_socket_t fd, const char *what)
    * To ensure we only have each file descriptor once, we remove it then add
    * it again.
    */
-  fprintf(stderr, "Add socket fd %d for %s\n", (int) fd, what);
+  curl_mfprintf(stderr, "Add socket fd %d for %s\n", (int) fd, what);
   removeFd(sockets, fd, 0);
   /*
    * Allocate array storage when required.
@@ -122,9 +120,10 @@ static int curlSocketCallback(CURL *easy, curl_socket_t s, int action,
   (void)easy; /* unused */
   (void)socketp; /* unused */
 
-  fprintf(stderr, "CURLMOPT_SOCKETFUNCTION called: %u\n", socket_calls++);
+  curl_mfprintf(stderr, "CURLMOPT_SOCKETFUNCTION called: %u\n",
+                socket_calls++);
   if(socket_calls == max_socket_calls) {
-    fprintf(stderr, "curlSocketCallback returns error\n");
+    curl_mfprintf(stderr, "curlSocketCallback returns error\n");
     return -1;
   }
 
@@ -155,9 +154,9 @@ static int curlTimerCallback(CURLM *multi, long timeout_ms, void *userp)
   struct timeval *timeout = userp;
 
   (void)multi; /* unused */
-  fprintf(stderr, "CURLMOPT_TIMERFUNCTION called: %u\n", timer_calls++);
+  curl_mfprintf(stderr, "CURLMOPT_TIMERFUNCTION called: %u\n", timer_calls++);
   if(timer_calls == max_timer_calls) {
-    fprintf(stderr, "curlTimerCallback returns error\n");
+    curl_mfprintf(stderr, "curlTimerCallback returns error\n");
     return -1;
   }
   if(timeout_ms != -1) {
@@ -190,7 +189,7 @@ static int checkForCompletion(CURLM *curl, int *success)
         *success = 0;
     }
     else {
-      fprintf(stderr, "Got an unexpected message from curl: %i\n",
+      curl_mfprintf(stderr, "Got an unexpected message from curl: %i\n",
               message->msg);
       result = 1;
       *success = 0;
@@ -220,7 +219,14 @@ static void updateFdSet(struct Sockets *sockets, fd_set* fdset,
 {
   int i;
   for(i = 0; i < sockets->count; ++i) {
+#if defined(__DJGPP__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warith-conversion"
+#endif
     FD_SET(sockets->sockets[i], fdset);
+#if defined(__DJGPP__)
+#pragma GCC diagnostic pop
+#endif
     if(*maxFd < sockets->sockets[i] + 1) {
       *maxFd = sockets->sockets[i] + 1;
     }
@@ -233,7 +239,7 @@ static int socket_action(CURLM *curl, curl_socket_t s, int evBitmask,
   int numhandles = 0;
   CURLMcode result = curl_multi_socket_action(curl, s, evBitmask, &numhandles);
   if(result != CURLM_OK) {
-    fprintf(stderr, "Curl error on %s: %i (%s)\n",
+    curl_mfprintf(stderr, "Curl error on %s (%i) %s\n",
             info, result, curl_multi_strerror(result));
   }
   return (int)result;
@@ -263,8 +269,9 @@ static CURLcode testone(char *URL, int timercb, int socketcb)
   CURLcode res = CURLE_OK;
   CURL *curl = NULL;  CURLM *m = NULL;
   struct ReadWriteSockets sockets = {{NULL, 0, 0}, {NULL, 0, 0}};
-  struct timeval timeout = {-1, 0};
   int success = 0;
+  struct timeval timeout = {0};
+  timeout.tv_sec = (time_t)-1;
 
   /* set the limits */
   max_timer_calls = timercb;
@@ -272,7 +279,7 @@ static CURLcode testone(char *URL, int timercb, int socketcb)
   timer_calls = 0; /* reset the globals */
   socket_calls = 0;
 
-  fprintf(stderr, "start test: %d %d\n", timercb, socketcb);
+  curl_mfprintf(stderr, "start test: %d %d\n", timercb, socketcb);
   start_test_timing();
 
   res_global_init(CURL_GLOBAL_ALL);
@@ -305,14 +312,15 @@ static CURLcode testone(char *URL, int timercb, int socketcb)
   while(!checkForCompletion(m, &success)) {
     fd_set readSet, writeSet;
     curl_socket_t maxFd = 0;
-    struct timeval tv = {10, 0};
+    struct timeval tv = {0};
+    tv.tv_sec = 10;
 
     FD_ZERO(&readSet);
     FD_ZERO(&writeSet);
     updateFdSet(&sockets.read, &readSet, &maxFd);
     updateFdSet(&sockets.write, &writeSet, &maxFd);
 
-    if(timeout.tv_sec != -1) {
+    if(timeout.tv_sec != (time_t)-1) {
       int usTimeout = getMicroSecondTimeout(&timeout);
       tv.tv_sec = usTimeout / 1000000;
       tv.tv_usec = usTimeout % 1000000;
@@ -335,7 +343,7 @@ static CURLcode testone(char *URL, int timercb, int socketcb)
       goto test_cleanup;
     }
 
-    if(timeout.tv_sec != -1 && getMicroSecondTimeout(&timeout) == 0) {
+    if(timeout.tv_sec != (time_t)-1 && getMicroSecondTimeout(&timeout) == 0) {
       /* Curl's timer has elapsed. */
       if(socket_action(m, CURL_SOCKET_TIMEOUT, 0, "timeout")) {
         res = TEST_ERR_BAD_TIMEOUT;
@@ -347,14 +355,14 @@ static CURLcode testone(char *URL, int timercb, int socketcb)
   }
 
   if(!success) {
-    fprintf(stderr, "Error getting file.\n");
+    curl_mfprintf(stderr, "Error getting file.\n");
     res = TEST_ERR_MAJOR_BAD;
   }
 
 test_cleanup:
 
   /* proper cleanup sequence */
-  fprintf(stderr, "cleanup: %d %d\n", timercb, socketcb);
+  curl_mfprintf(stderr, "cleanup: %d %d\n", timercb, socketcb);
   curl_multi_remove_handle(m, curl);
   curl_easy_cleanup(curl);
   curl_multi_cleanup(m);
@@ -373,23 +381,23 @@ CURLcode test(char *URL)
      callback calls */
   rc = testone(URL, 0, 0);
   if(rc)
-    fprintf(stderr, "test 0/0 failed: %d\n", rc);
+    curl_mfprintf(stderr, "test 0/0 failed: %d\n", rc);
 
   rc = testone(URL, 1, 0);
   if(!rc)
-    fprintf(stderr, "test 1/0 failed: %d\n", rc);
+    curl_mfprintf(stderr, "test 1/0 failed: %d\n", rc);
 
   rc = testone(URL, 2, 0);
   if(!rc)
-    fprintf(stderr, "test 2/0 failed: %d\n", rc);
+    curl_mfprintf(stderr, "test 2/0 failed: %d\n", rc);
 
   rc = testone(URL, 0, 1);
   if(!rc)
-    fprintf(stderr, "test 0/1 failed: %d\n", rc);
+    curl_mfprintf(stderr, "test 0/1 failed: %d\n", rc);
 
   rc = testone(URL, 0, 2);
   if(!rc)
-    fprintf(stderr, "test 0/2 failed: %d\n", rc);
+    curl_mfprintf(stderr, "test 0/2 failed: %d\n", rc);
 
   return CURLE_OK;
 }

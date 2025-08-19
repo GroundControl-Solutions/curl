@@ -24,7 +24,7 @@
 #include "tool_filetime.h"
 #include "tool_cfgable.h"
 #include "tool_msgs.h"
-#include "curlx.h"
+#include <curlx.h>
 
 #ifdef HAVE_UTIME_H
 #  include <utime.h>
@@ -38,12 +38,12 @@ int getfiletime(const char *filename, struct GlobalConfig *global,
 {
   int rc = 1;
 
-/* Windows stat() may attempt to adjust the unix GMT file time by a daylight
+/* Windows stat() may attempt to adjust the Unix GMT file time by a daylight
    saving time offset and since it is GMT that is bad behavior. When we have
    access to a 64-bit type we can bypass stat and get the times directly. */
-#if defined(_WIN32) && !defined(CURL_WINDOWS_APP)
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP)
   HANDLE hfile;
-  TCHAR *tchar_filename = curlx_convert_UTF8_to_tchar((char *)filename);
+  TCHAR *tchar_filename = curlx_convert_UTF8_to_tchar(filename);
 
   hfile = CreateFile(tchar_filename, FILE_READ_ATTRIBUTES,
                       (FILE_SHARE_READ | FILE_SHARE_WRITE |
@@ -92,14 +92,14 @@ void setfiletime(curl_off_t filetime, const char *filename,
                  struct GlobalConfig *global)
 {
   if(filetime >= 0) {
-/* Windows utime() may attempt to adjust the unix GMT file time by a daylight
+/* Windows utime() may attempt to adjust the Unix GMT file time by a daylight
    saving time offset and since it is GMT that is bad behavior. When we have
    access to a 64-bit type we can bypass utime and set the times directly. */
-#if defined(_WIN32) && !defined(CURL_WINDOWS_APP)
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP)
     HANDLE hfile;
-    TCHAR *tchar_filename = curlx_convert_UTF8_to_tchar((char *)filename);
+    TCHAR *tchar_filename = curlx_convert_UTF8_to_tchar(filename);
 
-    /* 910670515199 is the maximum unix filetime that can be used as a
+    /* 910670515199 is the maximum Unix filetime that can be used as a
        Windows FILETIME without overflow: 30827-12-31T23:59:59. */
     if(filetime > CURL_OFF_T_C(910670515199)) {
       warnf(global, "Failed to set filetime %" CURL_FORMAT_CURL_OFF_T

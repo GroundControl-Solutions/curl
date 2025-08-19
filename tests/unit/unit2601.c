@@ -42,7 +42,7 @@ static const char *tail_err(struct bufq *q)
   struct buf_chunk *chunk;
 
   if(!q->tail) {
-    return q->head? "tail is NULL, but head is not" : NULL;
+    return q->head ? "tail is NULL, but head is not" : NULL;
   }
 
   chunk = q->head;
@@ -64,26 +64,26 @@ static void dump_bufq(struct bufq *q, const char *msg)
   const char *terr;
   size_t n;
 
-  fprintf(stderr, "bufq[chunk_size=%zu, max_chunks=%zu] %s\n",
-          q->chunk_size, q->max_chunks, msg);
-  fprintf(stderr, "- queue[\n");
+  curl_mfprintf(stderr, "bufq[chunk_size=%zu, max_chunks=%zu] %s\n",
+                q->chunk_size, q->max_chunks, msg);
+  curl_mfprintf(stderr, "- queue[\n");
   chunk = q->head;
   while(chunk) {
-    fprintf(stderr, "    chunk[len=%zu, roff=%zu, woff=%zu]\n",
-            chunk->dlen, chunk->r_offset, chunk->w_offset);
+    curl_mfprintf(stderr, "    chunk[len=%zu, roff=%zu, woff=%zu]\n",
+                  chunk->dlen, chunk->r_offset, chunk->w_offset);
     chunk = chunk->next;
   }
-  fprintf(stderr, "  ]\n");
+  curl_mfprintf(stderr, "  ]\n");
   terr = tail_err(q);
-  fprintf(stderr, "- tail: %s\n", terr? terr : "ok");
+  curl_mfprintf(stderr, "- tail: %s\n", terr ? terr : "ok");
   n = 0;
   chunk = q->spare;
   while(chunk) {
     ++n;
     chunk = chunk->next;
   }
-  fprintf(stderr, "- chunks: %zu\n", q->chunk_count);
-  fprintf(stderr, "- spares: %zu\n", n);
+  curl_mfprintf(stderr, "- chunks: %zu\n", q->chunk_count);
+  curl_mfprintf(stderr, "- spares: %zu\n", n);
 }
 
 static unsigned char test_data[32*1024];
@@ -133,8 +133,8 @@ static void check_bufq(size_t pool_spares,
     }
   }
   if(nwritten != max_len) {
-    fprintf(stderr, "%zu bytes written, but max_len=%zu\n",
-            nwritten, max_len);
+    curl_mfprintf(stderr, "%zu bytes written, but max_len=%zu\n",
+                  nwritten, max_len);
     dump_bufq(&q, "after writing full");
     fail_if(TRUE, "write: bufq full but nwritten wrong");
   }
@@ -152,8 +152,8 @@ static void check_bufq(size_t pool_spares,
     }
   }
   if(nread != max_len) {
-    fprintf(stderr, "%zu bytes read, but max_len=%zu\n",
-            nwritten, max_len);
+    curl_mfprintf(stderr, "%zu bytes read, but max_len=%zu\n",
+                  nwritten, max_len);
     dump_bufq(&q, "after reading empty");
     fail_if(TRUE, "read: bufq empty but nread wrong");
   }
@@ -188,8 +188,8 @@ static void check_bufq(size_t pool_spares,
     nwritten += (size_t)n;
   }
   if(nwritten < max_len) {
-    fprintf(stderr, "%zu bytes written, but max_len=%zu\n",
-            nwritten, max_len);
+    curl_mfprintf(stderr, "%zu bytes written, but max_len=%zu\n",
+                  nwritten, max_len);
     dump_bufq(&q, "after writing full");
     fail_if(TRUE, "write: bufq full but nwritten wrong");
   }
@@ -208,6 +208,41 @@ static void check_bufq(size_t pool_spares,
     nread += (size_t)n;
   }
   fail_unless(nread == nwritten, "did not get the same out as put in");
+
+  /* CHECK bufq_unwrite: write a string repeatedly into the second chunk.
+   * bufq_unwrite() 1 byte. Read strings again and check for content.
+   * We had a bug that unwrite used the head chunk instead of tail, which
+   * did corrupt the read values. */
+  if(TRUE) {
+    const unsigned char buf[] = "0123456789--";
+    size_t roffset;
+    Curl_bufq_reset(&q);
+    while(Curl_bufq_len(&q) < chunk_size) {
+      n = Curl_bufq_write(&q, buf, sizeof(buf), &result);
+      fail_unless(n > 0 && (size_t)n == sizeof(buf), "write incomplete");
+      if(result)
+        break;
+    }
+    result = Curl_bufq_unwrite(&q, 1);
+    roffset = 0;
+    while(!Curl_bufq_is_empty(&q)) {
+      unsigned char rbuf[sizeof(buf)];
+      n = Curl_bufq_read(&q, rbuf, sizeof(rbuf), &result);
+      fail_unless(n > 0, "read should work");
+      if(result)
+        break;
+      if(n != sizeof(rbuf)) {
+        fail_unless(Curl_bufq_is_empty(&q), "should be last read");
+      }
+      if(memcmp(buf, rbuf, n)) {
+        curl_mfprintf(stderr, "at offset %zu expected '%.*s', got '%.*s'\n",
+                      roffset, (int)n, buf, (int)n, rbuf);
+        fail("read buf content wrong");
+      }
+      roffset += n;
+    }
+    Curl_bufq_reset(&q);
+  }
 
   dump_bufq(&q, "at end of test");
   Curl_bufq_free(&q);

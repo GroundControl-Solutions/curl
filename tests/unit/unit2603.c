@@ -37,6 +37,7 @@ static void unit_stop(void)
 {
 }
 
+#ifndef CURL_DISABLE_HTTP
 struct tcase {
   const char **input;
   const char *default_scheme;
@@ -52,16 +53,17 @@ static void check_eq(const char *s, const char *exp_s, const char *name)
 {
   if(s && exp_s) {
     if(strcmp(s, exp_s)) {
-      fprintf(stderr, "expected %s: '%s' but got '%s'\n", name, exp_s, s);
+      curl_mfprintf(stderr, "expected %s: '%s' but got '%s'\n",
+                    name, exp_s, s);
       fail("unexpected req component");
     }
   }
   else if(!s && exp_s) {
-    fprintf(stderr, "expected %s: '%s' but got NULL\n", name, exp_s);
+    curl_mfprintf(stderr, "expected %s: '%s' but got NULL\n", name, exp_s);
     fail("unexpected req component");
   }
   else if(s && !exp_s) {
-    fprintf(stderr, "expected %s: NULL but got '%s'\n", name, s);
+    curl_mfprintf(stderr, "expected %s: NULL but got '%s'\n", name, s);
     fail("unexpected req component");
   }
 }
@@ -83,14 +85,14 @@ static void parse_success(struct tcase *t)
     nread = Curl_h1_req_parse_read(&p, buf, buflen, t->default_scheme,
                                    0, &err);
     if(nread < 0) {
-      fprintf(stderr, "got err %d parsing: '%s'\n", err, buf);
+      curl_mfprintf(stderr, "got err %d parsing: '%s'\n", err, buf);
       fail("error consuming");
     }
     in_consumed += (size_t)nread;
     if((size_t)nread != buflen) {
       if(!p.done) {
-        fprintf(stderr, "only %zd/%zu consumed for: '%s'\n",
-                nread, buflen, buf);
+        curl_mfprintf(stderr, "only %zd/%zu consumed for: '%s'\n",
+                      nread, buflen, buf);
         fail("not all consumed");
       }
     }
@@ -99,8 +101,8 @@ static void parse_success(struct tcase *t)
   fail_if(!p.done, "end not detected");
   fail_if(!p.req, "not request created");
   if(t->input_remain != (in_len - in_consumed)) {
-    fprintf(stderr, "expected %zu input bytes to remain, but got %zu\n",
-            t->input_remain, in_len - in_consumed);
+    curl_mfprintf(stderr, "expected %zu input bytes to remain, but got %zu\n",
+                  t->input_remain, in_len - in_consumed);
     fail("unexpected input consumption");
   }
   if(p.req) {
@@ -109,8 +111,8 @@ static void parse_success(struct tcase *t)
     check_eq(p.req->authority, t->authority, "authority");
     check_eq(p.req->path, t->path, "path");
     if(Curl_dynhds_count(&p.req->headers) != t->header_count) {
-      fprintf(stderr, "expected %zu headers but got %zu\n", t->header_count,
-             Curl_dynhds_count(&p.req->headers));
+      curl_mfprintf(stderr, "expected %zu headers but got %zu\n",
+                    t->header_count, Curl_dynhds_count(&p.req->headers));
       fail("unexpected req header count");
     }
   }
@@ -176,9 +178,11 @@ static const char *T6_INPUT[] = {
 static struct tcase TEST6a = {
   T6_INPUT, NULL, "PUT", NULL, NULL, "/path", 1, 3
 };
+#endif
 
 UNITTEST_START
 
+#ifndef CURL_DISABLE_HTTP
   parse_success(&TEST1a);
   parse_success(&TEST1b);
   parse_success(&TEST2);
@@ -186,5 +190,6 @@ UNITTEST_START
   parse_success(&TEST4a);
   parse_success(&TEST5a);
   parse_success(&TEST6a);
+#endif
 
 UNITTEST_STOP

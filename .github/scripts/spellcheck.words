@@ -33,7 +33,6 @@ archivers
 Archos
 Arntsen
 Aros
-ascii
 asynch
 AsynchDNS
 atime
@@ -44,6 +43,7 @@ Autoconf
 autoconf
 Automake
 automake
+autoreconf
 Autotools
 autotools
 AVR
@@ -63,6 +63,7 @@ BearSSL
 Benoit
 BeOS
 bitmask
+bitset
 bitwise
 Björn
 Bjørn
@@ -78,7 +79,6 @@ bugfix
 bugfixes
 buildable
 buildbot
-buildconf
 Caddy
 calloc
 CAPA
@@ -122,11 +122,11 @@ CMakeLists
 CNA
 CNAME
 CNAMEs
-CodeQL
-codeql
 CODESET
 codeset
+CodeSonar
 Comcast
+commit's
 Config
 config
 conncache
@@ -137,6 +137,7 @@ CPUs
 CR
 CRL
 CRLF
+crontab
 crt
 crypto
 cryptographic
@@ -175,6 +176,7 @@ DELE
 DER
 dereference
 dereferences
+DES
 deselectable
 deserialization
 Deserialized
@@ -185,6 +187,7 @@ devcpp
 DevOps
 devtools
 DHCP
+DHE
 dir
 distro
 distro's
@@ -251,8 +254,10 @@ Feltzing
 ffi
 filesize
 filesystem
+FindCURL
 FLOSS
 fnmatch
+footguns
 formpost
 formposts
 Fortnite
@@ -346,6 +351,7 @@ httpget
 HttpGet
 HTTPS
 https
+HTTPSRR
 hyper's
 Högskolan
 IANA
@@ -363,7 +369,7 @@ ifdefs
 ifhost
 IIS
 ILE
-Illumos
+illumos
 IMAP
 imap
 IMAPS
@@ -443,6 +449,8 @@ librtmp
 libs
 libssh
 libssh2
+libtest
+libtests
 Libtool
 libtool
 libuv
@@ -451,6 +459,7 @@ libz
 libzstd
 LineageOS
 linux
+lldb
 ln
 localhost
 LOGDIR
@@ -596,6 +605,7 @@ Orbis
 ORing
 Osipov
 OSS
+PaaS
 pac
 pacman
 parser's
@@ -664,6 +674,7 @@ ReactOS
 README
 realloc
 Realtime
+rebalances
 rebase
 RECV
 recv
@@ -685,7 +696,6 @@ RETR
 retransmit
 retrigger
 RHEL
-RICS
 Rikard
 rmdir
 ROADMAP
@@ -699,6 +709,7 @@ RRtype
 RSA
 RTMP
 rtmp
+rtmpdump
 RTMPE
 RTMPS
 RTMPT
@@ -713,7 +724,9 @@ runtests
 runtime
 Ruslan
 rustc
+Rustls
 rustls
+rustup
 Sagula
 SanDisk
 SAS
@@ -765,6 +778,7 @@ SOCKSv
 Solaris
 SONAME
 Soref
+SOVERSION
 SPARC
 SPDX
 SPNEGO
@@ -777,6 +791,7 @@ SSL
 ssl
 SSLeay
 SSLKEYLOGFILE
+SSLS
 sslv
 SSLv
 SSLVERSION
@@ -829,6 +844,7 @@ TCP
 tcpdump
 Tekniska
 testability
+testcurl
 TFTP
 tftp
 threadsafe
@@ -847,6 +863,7 @@ TPF
 TrackMemory
 transcode
 Tru
+trurl
 trustless
 Tse
 Tsujikawa
@@ -857,6 +874,7 @@ typedef
 typedefed
 Ubuntu
 ucLinux
+UCRT
 UDP
 UI
 UID
@@ -872,7 +890,6 @@ unescape
 Unglobbed
 Unicode
 UNICOS
-unix
 UnixSockets
 UnixWare
 unlink
@@ -884,6 +901,7 @@ unsanitized
 Unshare
 unsharing
 untrusted
+unwrite
 UPN
 upstreaming
 URI
@@ -906,6 +924,7 @@ VC
 vcpkg
 vexxhost
 Viktor
+Virtuozzo
 VLAN
 VM
 VMS
@@ -924,6 +943,7 @@ Warta
 watchOS
 WAV
 WB
+wcurl
 web page
 WebDAV
 WebOS
@@ -934,15 +954,10 @@ WHATWG
 whitespace
 Whitespaces
 winbind
-WinBind
 winbuild
-winidn
 WinIDN
 WinLDAP
-WinSock
 winsock
-WinSSL
-winssl
 Wireshark
 wolfSSH
 wolfSSL

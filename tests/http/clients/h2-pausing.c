@@ -25,17 +25,21 @@
  * HTTP/2 download pausing
  * </DESC>
  */
-/* This is based on the poc client of issue #11982
+/* This is based on the PoC client of issue #11982
  */
+#include <curl/curl.h>
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <stdlib.h>
-#include <curl/curl.h>
-#include <curl/mprintf.h>
 
+#ifndef _MSC_VER
+/* somewhat Unix-specific */
+#include <unistd.h>  /* getopt() */
+#endif
+
+#ifndef _MSC_VER
 #define HANDLECOUNT 2
 
 static void log_line_start(FILE *log, const char *idsbuf, curl_infotype type)
@@ -75,8 +79,8 @@ static int debug_cb(CURL *handle, curl_infotype type,
   if(!curl_easy_getinfo(handle, CURLINFO_XFER_ID, &xfer_id) && xfer_id >= 0) {
     if(!curl_easy_getinfo(handle, CURLINFO_CONN_ID, &conn_id) &&
         conn_id >= 0) {
-      curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_2,
-                     xfer_id, conn_id);
+      curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_2, xfer_id,
+                     conn_id);
     }
     else {
       curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_1, xfer_id);
@@ -136,12 +140,6 @@ static int debug_cb(CURL *handle, curl_infotype type,
   return 0;
 }
 
-static int err(void)
-{
-  fprintf(stderr, "something unexpected went wrong - bailing out!\n");
-  exit(2);
-}
-
 static void usage(const char *msg)
 {
   if(msg)
@@ -163,7 +161,7 @@ struct handle
   CURL *h;
 };
 
-static size_t cb(void *data, size_t size, size_t nmemb, void *clientp)
+static size_t cb(char *data, size_t size, size_t nmemb, void *clientp)
 {
   size_t realsize = size * nmemb;
   struct handle *handle = (struct handle *) clientp;
@@ -193,8 +191,17 @@ static size_t cb(void *data, size_t size, size_t nmemb, void *clientp)
   return realsize;
 }
 
+#define ERR()                                                             \
+  do {                                                                    \
+    fprintf(stderr, "something unexpected went wrong - bailing out!\n");  \
+    return 2;                                                             \
+  } while(0)
+
+#endif /* !_MSC_VER */
+
 int main(int argc, char *argv[])
 {
+#ifndef _MSC_VER
   struct handle handles[HANDLECOUNT];
   CURLM *multi_handle;
   int i, still_running = 1, msgs_left, numfds;
@@ -248,26 +255,26 @@ int main(int argc, char *argv[])
   cu = curl_url();
   if(!cu) {
     fprintf(stderr, "out of memory\n");
-    exit(1);
+    return 1;
   }
   if(curl_url_set(cu, CURLUPART_URL, url, 0)) {
     fprintf(stderr, "not a URL: '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_HOST, &host, 0)) {
     fprintf(stderr, "could not get host of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_PORT, &port, 0)) {
     fprintf(stderr, "could not get port of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   memset(&resolve, 0, sizeof(resolve));
-  curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1,
-                 "%s:%s:127.0.0.1", host, port);
+  curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1, "%s:%s:127.0.0.1",
+                 host, port);
   resolve = curl_slist_append(resolve, resolve_buf);
 
-  for(i = 0; i<HANDLECOUNT; i++) {
+  for(i = 0; i < HANDLECOUNT; i++) {
     handles[i].idx = i;
     handles[i].paused = 0;
     handles[i].resumed = 0;
@@ -286,29 +293,29 @@ int main(int argc, char *argv[])
       curl_easy_setopt(handles[i].h, CURLOPT_RESOLVE, resolve) != CURLE_OK ||
       curl_easy_setopt(handles[i].h, CURLOPT_PIPEWAIT, 1L) ||
       curl_easy_setopt(handles[i].h, CURLOPT_URL, url) != CURLE_OK) {
-      err();
+      ERR();
     }
     curl_easy_setopt(handles[i].h, CURLOPT_HTTP_VERSION, (long)http_version);
   }
 
   multi_handle = curl_multi_init();
   if(!multi_handle)
-    err();
+    ERR();
 
-  for(i = 0; i<HANDLECOUNT; i++) {
+  for(i = 0; i < HANDLECOUNT; i++) {
     if(curl_multi_add_handle(multi_handle, handles[i].h) != CURLM_OK)
-      err();
+      ERR();
   }
 
   for(rounds = 0;; rounds++) {
     fprintf(stderr, "INFO: multi_perform round %d\n", rounds);
     if(curl_multi_perform(multi_handle, &still_running) != CURLM_OK)
-      err();
+      ERR();
 
     if(!still_running) {
       int as_expected = 1;
       fprintf(stderr, "INFO: no more handles running\n");
-      for(i = 0; i<HANDLECOUNT; i++) {
+      for(i = 0; i < HANDLECOUNT; i++) {
         if(!handles[i].paused) {
           fprintf(stderr, "ERROR: [%d] NOT PAUSED\n", i);
           as_expected = 0;
@@ -337,11 +344,12 @@ int main(int argc, char *argv[])
     }
 
     if(curl_multi_poll(multi_handle, NULL, 0, 100, &numfds) != CURLM_OK)
-      err();
+      ERR();
 
-    while((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
+    /* !checksrc! disable EQUALSNULL 1 */
+    while((msg = curl_multi_info_read(multi_handle, &msgs_left)) != NULL) {
       if(msg->msg == CURLMSG_DONE) {
-        for(i = 0; i<HANDLECOUNT; i++) {
+        for(i = 0; i < HANDLECOUNT; i++) {
           if(msg->easy_handle == handles[i].h) {
             if(handles[i].paused != 1 || !handles[i].resumed) {
               fprintf(stderr, "ERROR: [%d] done, pauses=%d, resumed=%d, "
@@ -357,7 +365,7 @@ int main(int argc, char *argv[])
 
     /* Successfully paused? */
     if(!all_paused) {
-      for(i = 0; i<HANDLECOUNT; i++) {
+      for(i = 0; i < HANDLECOUNT; i++) {
         if(!handles[i].paused) {
           break;
         }
@@ -371,7 +379,7 @@ int main(int argc, char *argv[])
     }
     if(resume_round > 0 && rounds == resume_round) {
       /* time to resume */
-      for(i = 0; i<HANDLECOUNT; i++) {
+      for(i = 0; i < HANDLECOUNT; i++) {
         fprintf(stderr, "INFO: [%d] resumed\n", i);
         handles[i].resumed = 1;
         curl_easy_pause(handles[i].h, CURLPAUSE_CONT);
@@ -380,7 +388,7 @@ int main(int argc, char *argv[])
   }
 
 out:
-  for(i = 0; i<HANDLECOUNT; i++) {
+  for(i = 0; i < HANDLECOUNT; i++) {
     curl_multi_remove_handle(multi_handle, handles[i].h);
     curl_easy_cleanup(handles[i].h);
   }
@@ -394,4 +402,10 @@ out:
   curl_global_cleanup();
 
   return rc;
+#else
+  (void)argc;
+  (void)argv;
+  fprintf(stderr, "Not supported with this compiler.\n");
+  return 1;
+#endif /* !_MSC_VER */
 }

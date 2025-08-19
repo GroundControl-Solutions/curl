@@ -25,16 +25,20 @@
  * upload pausing
  * </DESC>
  */
-/* This is based on the poc client of issue #11769
+/* This is based on the PoC client of issue #11769
  */
+#include <curl/curl.h>
+
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <stdlib.h>
-#include <curl/curl.h>
-#include <curl/mprintf.h>
 
+#ifndef _MSC_VER
+/* somewhat Unix-specific */
+#include <unistd.h>  /* getopt() */
+#endif
+
+#ifndef _MSC_VER
 static void log_line_start(FILE *log, const char *idsbuf, curl_infotype type)
 {
   /*
@@ -72,8 +76,8 @@ static int debug_cb(CURL *handle, curl_infotype type,
   if(!curl_easy_getinfo(handle, CURLINFO_XFER_ID, &xfer_id) && xfer_id >= 0) {
     if(!curl_easy_getinfo(handle, CURLINFO_CONN_ID, &conn_id) &&
         conn_id >= 0) {
-      curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_2,
-                     xfer_id, conn_id);
+      curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_2, xfer_id,
+                     conn_id);
     }
     else {
       curl_msnprintf(idsbuf, sizeof(idsbuf), TRC_IDS_FORMAT_IDS_1, xfer_id);
@@ -155,10 +159,10 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb,
 }
 
 static int progress_callback(void *clientp,
-                             double dltotal,
-                             double dlnow,
-                             double ultotal,
-                             double ulnow)
+                             curl_off_t dltotal,
+                             curl_off_t dlnow,
+                             curl_off_t ultotal,
+                             curl_off_t ulnow)
 {
   (void)dltotal;
   (void)dlnow;
@@ -176,28 +180,65 @@ static int progress_callback(void *clientp,
   return 0;
 }
 
-static int err(void)
+static void usage(const char *msg)
 {
-  fprintf(stderr, "something unexpected went wrong - bailing out!\n");
-  exit(2);
+  if(msg)
+    fprintf(stderr, "%s\n", msg);
+  fprintf(stderr,
+    "usage: [options] url\n"
+    "  upload and pause, options:\n"
+    "  -V http_version (http/1.1, h2, h3) http version to use\n"
+  );
 }
 
+#define ERR()                                                             \
+  do {                                                                    \
+    fprintf(stderr, "something unexpected went wrong - bailing out!\n");  \
+    return 2;                                                             \
+  } while(0)
 
+#endif /* !_MSC_VER */
 
 int main(int argc, char *argv[])
 {
+#ifndef _MSC_VER
   CURL *curl;
   CURLcode rc = CURLE_OK;
   CURLU *cu;
   struct curl_slist *resolve = NULL;
   char resolve_buf[1024];
   char *url, *host = NULL, *port = NULL;
+  long http_version = CURL_HTTP_VERSION_1_1;
+  int ch;
 
-  if(argc != 2) {
-    fprintf(stderr, "ERROR: need URL as argument\n");
+  while((ch = getopt(argc, argv, "V:")) != -1) {
+    switch(ch) {
+    case 'V': {
+      if(!strcmp("http/1.1", optarg))
+        http_version = CURL_HTTP_VERSION_1_1;
+      else if(!strcmp("h2", optarg))
+        http_version = CURL_HTTP_VERSION_2_0;
+      else if(!strcmp("h3", optarg))
+        http_version = CURL_HTTP_VERSION_3ONLY;
+      else {
+        usage("invalid http version");
+        return 1;
+      }
+      break;
+    }
+    default:
+     usage("invalid option");
+     return 1;
+    }
+  }
+  argc -= optind;
+  argv += optind;
+
+  if(argc != 1) {
+    usage("not enough arguments");
     return 2;
   }
-  url = argv[1];
+  url = argv[0];
 
   curl_global_init(CURL_GLOBAL_DEFAULT);
   curl_global_trace("ids,time");
@@ -205,29 +246,29 @@ int main(int argc, char *argv[])
   cu = curl_url();
   if(!cu) {
     fprintf(stderr, "out of memory\n");
-    exit(1);
+    return 1;
   }
   if(curl_url_set(cu, CURLUPART_URL, url, 0)) {
     fprintf(stderr, "not a URL: '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_HOST, &host, 0)) {
     fprintf(stderr, "could not get host of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_PORT, &port, 0)) {
     fprintf(stderr, "could not get port of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   memset(&resolve, 0, sizeof(resolve));
-  curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1,
-                 "%s:%s:127.0.0.1", host, port);
+  curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1, "%s:%s:127.0.0.1",
+                 host, port);
   resolve = curl_slist_append(resolve, resolve_buf);
 
   curl = curl_easy_init();
   if(!curl) {
     fprintf(stderr, "out of memory\n");
-    exit(1);
+    return 1;
   }
   /* We want to use our own read function. */
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
@@ -247,13 +288,18 @@ int main(int argc, char *argv[])
   curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
   curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
 
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
   if(curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L) != CURLE_OK ||
      curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debug_cb)
      != CURLE_OK ||
      curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve) != CURLE_OK)
-    err();
+    ERR();
 
   curl_easy_setopt(curl, CURLOPT_URL, url);
+  curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, http_version);
+
   rc = curl_easy_perform(curl);
 
   if(curl) {
@@ -267,4 +313,10 @@ int main(int argc, char *argv[])
   curl_global_cleanup();
 
   return (int)rc;
+#else
+  (void)argc;
+  (void)argv;
+  fprintf(stderr, "Not supported with this compiler.\n");
+  return 1;
+#endif /* !_MSC_VER */
 }

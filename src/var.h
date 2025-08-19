@@ -25,10 +25,10 @@
  ***************************************************************************/
 
 #include "tool_getparam.h"
-#include "dynbuf.h"
+#include <curlx.h>
 
-struct var {
-  struct var *next;
+struct tool_var {
+  struct tool_var *next;
   const char *content;
   size_t clen; /* content length */
   char name[1]; /* allocated as part of the struct */
@@ -38,7 +38,7 @@ struct GlobalConfig;
 
 ParameterError setvariable(struct GlobalConfig *global, const char *input);
 ParameterError varexpand(struct GlobalConfig *global,
-                         const char *line, struct curlx_dynbuf *out,
+                         const char *line, struct dynbuf *out,
                          bool *replaced);
 
 /* free everything */

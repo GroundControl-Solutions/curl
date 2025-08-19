@@ -24,7 +24,7 @@
 
 AUTOMAKE_OPTIONS = foreign nostdinc
 
-EXTRA_DIST = README.md Makefile.example Makefile.inc Makefile.mk \
+EXTRA_DIST = README.md Makefile.example CMakeLists.txt \
   $(COMPLICATED_EXAMPLES) .checksrc
 
 # Specify our include paths here, and do it relative to $(top_srcdir) and
@@ -34,8 +34,7 @@ EXTRA_DIST = README.md Makefile.example Makefile.inc Makefile.mk \
 #
 # $(top_srcdir)/include is for libcurl's external include files
 
-AM_CPPFLAGS = -I$(top_srcdir)/include   \
-              -DCURL_DISABLE_DEPRECATION
+AM_CPPFLAGS = -I$(top_srcdir)/include
 
 LIBDIR = $(top_builddir)/lib
 
@@ -45,16 +44,15 @@ AM_CPPFLAGS += -DCURL_NO_OLDIES
 if USE_CPPFLAG_CURL_STATICLIB
 AM_CPPFLAGS += -DCURL_STATICLIB
 endif
+if DOING_NATIVE_WINDOWS
+AM_CPPFLAGS += -DWIN32_LEAN_AND_MEAN
+endif
 
 # Prevent LIBS from being used for all link targets
 LIBS = $(BLANK_AT_MAKETIME)
 
 # Dependencies
-if USE_EXPLICIT_LIB_DEPS
-LDADD = $(LIBDIR)/libcurl.la @LIBCURL_LIBS@
-else
-LDADD = $(LIBDIR)/libcurl.la
-endif
+LDADD = $(LIBDIR)/libcurl.la @LIBCURL_PC_LIBS_PRIVATE@
 
 # This might hold -Werror
 CFLAGS += @CURL_CFLAG_EXTRAS@
@@ -71,3 +69,10 @@ CS_ = $(CS_0)
 
 checksrc:
 	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) $(srcdir)/*.c)
+
+if NOT_CURL_CI
+if DEBUGBUILD
+# for debug builds, we scan the sources on all regular make invokes
+all-local: checksrc
+endif
+endif

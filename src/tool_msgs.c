@@ -23,16 +23,14 @@
  ***************************************************************************/
 #include "tool_setup.h"
 
-#define ENABLE_CURLX_PRINTF
-/* use our own printf() functions */
-#include "curlx.h"
+#include <curlx.h>
 
 #include "tool_cfgable.h"
 #include "tool_msgs.h"
 #include "tool_cb_prg.h"
 #include "terminal.h"
 
-#include "memdebug.h" /* keep this as LAST include */
+#include <memdebug.h> /* keep this as LAST include */
 
 #define WARN_PREFIX "Warning: "
 #define NOTE_PREFIX "Note: "
@@ -55,7 +53,7 @@ static void voutf(struct GlobalConfig *config,
     char *ptr;
     char *print_buffer;
 
-    print_buffer = curlx_mvaprintf(fmt, ap);
+    print_buffer = vaprintf(fmt, ap);
     if(!print_buffer)
       return;
     len = strlen(print_buffer);

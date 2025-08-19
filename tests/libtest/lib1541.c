@@ -38,8 +38,8 @@ struct transfer_status {
 
 static int geterr(const char *name, CURLcode val, int lineno)
 {
-  printf("CURLINFO_%s returned %d, \"%s\" on line %d\n",
-         name, val, curl_easy_strerror(val), lineno);
+  curl_mprintf("CURLINFO_%s returned %d, \"%s\" on line %d\n",
+               name, val, curl_easy_strerror(val), lineno);
   return (int)val;
 }
 
@@ -47,10 +47,10 @@ static void report_time(const char *key, const char *where, curl_off_t time,
                         bool ok)
 {
   if(ok)
-    printf("%s on %s is OK\n", key, where);
+    curl_mprintf("%s on %s is OK\n", key, where);
   else
-    printf("%s on %s is WRONG: %" CURL_FORMAT_CURL_OFF_T "\n",
-           key, where, time);
+    curl_mprintf("%s on %s is WRONG: %" CURL_FORMAT_CURL_OFF_T "\n",
+                 key, where, time);
 }
 
 static void check_time(CURL *easy, int key, const char *name,
@@ -77,7 +77,7 @@ static void check_time0(CURL *easy, int key, const char *name,
     report_time(name, where, tval, !tval);
 }
 
-static size_t header_callback(void *ptr, size_t size, size_t nmemb,
+static size_t header_callback(char *ptr, size_t size, size_t nmemb,
                               void *userp)
 {
   struct transfer_status *st = (struct transfer_status *)userp;
@@ -100,7 +100,7 @@ static size_t header_callback(void *ptr, size_t size, size_t nmemb,
   return len;
 }
 
-static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userp)
+static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userp)
 {
   struct transfer_status *st = (struct transfer_status *)userp;
 
@@ -137,6 +137,7 @@ CURLcode test(char *URL)
 
   check_time(curls, KN(CURLINFO_CONNECT_TIME_T), "done");
   check_time(curls, KN(CURLINFO_PRETRANSFER_TIME_T), "done");
+  check_time(curls, KN(CURLINFO_POSTTRANSFER_TIME_T), "done");
   check_time(curls, KN(CURLINFO_STARTTRANSFER_TIME_T), "done");
   /* no SSL, must be 0 */
   check_time0(curls, KN(CURLINFO_APPCONNECT_TIME_T), "done");

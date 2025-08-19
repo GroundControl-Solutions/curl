@@ -114,7 +114,8 @@ Callback to receive timeout values. See CURLMOPT_TIMERFUNCTION(3)
 
 int main(void)
 {
-  CURLM *multi;
+  CURLM *multi = curl_multi_init();
+
   /* Limit the amount of simultaneous connections curl should allow: */
   curl_multi_setopt(multi, CURLMOPT_MAXCONNECTS, (long)MAX_PARALLEL);
 }
@@ -124,6 +125,10 @@ int main(void)
 
 # RETURN VALUE
 
-The standard CURLMcode for multi interface error codes. Note that it returns a
-CURLM_UNKNOWN_OPTION if you try setting an option that this version of libcurl
-does not know of.
+This function returns a CURLMcode indicating success or error.
+
+CURLM_OK (0) means everything was OK, non-zero means an error occurred, see
+libcurl-errors(3).
+
+Note that it returns a CURLM_UNKNOWN_OPTION if you try setting an option that
+this version of libcurl does not know of.

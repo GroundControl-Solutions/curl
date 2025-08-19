@@ -24,6 +24,7 @@
 
 AUTOMAKE_OPTIONS = foreign nostdinc
 
+EXTRA_DIST = CMakeLists.txt
 
 # Specify our include paths here, and do it relative to $(top_srcdir) and
 # $(top_builddir), to ensure that these paths which belong to the library
@@ -34,8 +35,7 @@ AUTOMAKE_OPTIONS = foreign nostdinc
 
 AM_CPPFLAGS = -I$(top_srcdir)/include   \
               -I$(top_builddir)/lib     \
-              -I$(top_srcdir)/lib       \
-              -DCURL_DISABLE_DEPRECATION
+              -I$(top_srcdir)/lib
 
 LIBDIR = $(top_builddir)/lib
 
@@ -45,21 +45,20 @@ AM_CPPFLAGS += -DCURL_NO_OLDIES
 if USE_CPPFLAG_CURL_STATICLIB
 AM_CPPFLAGS += -DCURL_STATICLIB
 endif
+if DOING_NATIVE_WINDOWS
+AM_CPPFLAGS += -DWIN32_LEAN_AND_MEAN
+endif
 
 # Prevent LIBS from being used for all link targets
 LIBS = $(BLANK_AT_MAKETIME)
 
 # Dependencies
-if USE_EXPLICIT_LIB_DEPS
-LDADD = $(LIBDIR)/libcurl.la @LIBCURL_LIBS@
-else
-LDADD = $(LIBDIR)/libcurl.la
-endif
+LDADD = $(LIBDIR)/libcurl.la @LIBCURL_PC_LIBS_PRIVATE@
 
 # This might hold -Werror
 CFLAGS += @CURL_CFLAG_EXTRAS@
 
-# Makefile.inc provides the check_PROGRAMS and COMPLICATED_EXAMPLES defines
+# Makefile.inc provides the check_PROGRAMS define
 include Makefile.inc
 
 all: $(check_PROGRAMS)
@@ -71,3 +70,7 @@ CS_ = $(CS_0)
 
 checksrc:
 	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) $(srcdir)/*.c)
+
+if NOT_CURL_CI
+all-local: checksrc
+endif

@@ -89,6 +89,7 @@ DPAGES = \
   doh-cert-status.md \
   doh-insecure.md \
   doh-url.md \
+  dump-ca-embed.md \
   dump-header.md \
   ech.md \
   egd-file.md \
@@ -133,7 +134,6 @@ DPAGES = \
   http3.md \
   http3-only.md \
   ignore-content-length.md \
-  include.md \
   insecure.md \
   interface.md \
   ip-tos.md \
@@ -251,7 +251,10 @@ DPAGES = \
   sasl-ir.md \
   service-name.md \
   show-error.md \
+  show-headers.md \
   silent.md \
+  sigalgs.md \
+  skip-existing.md \
   socks4.md \
   socks4a.md \
   socks5-basic.md \
@@ -267,6 +270,7 @@ DPAGES = \
   ssl-no-revoke.md \
   ssl-reqd.md \
   ssl-revoke-best-effort.md \
+  ssl-sessions.md \
   ssl.md \
   sslv2.md \
   sslv3.md \
@@ -279,6 +283,7 @@ DPAGES = \
   tftp-blksize.md \
   tftp-no-options.md \
   time-cond.md \
+  tls-earlydata.md \
   tls-max.md \
   tls13-ciphers.md \
   tlsauthtype.md \
@@ -297,6 +302,7 @@ DPAGES = \
   trace.md \
   unix-socket.md \
   upload-file.md \
+  upload-flags.md \
   url.md \
   url-query.md \
   use-ascii.md \

@@ -25,7 +25,7 @@
 
 #include "memdebug.h"
 
-static const char * const post[]={
+static const char * const testpost[]={
   "one",
   "two",
   "three",
@@ -38,31 +38,47 @@ struct WriteThis {
   int counter;
 };
 
+static bool started = FALSE;
+static size_t last_ul = 0;
+static size_t last_ul_total = 0;
+
+static void progress_final_report(void)
+{
+  FILE *moo = fopen(libtest_arg2, "ab");
+  curl_mfprintf(moo ? moo : stderr, "Progress: end UL %zu/%zu\n",
+                              last_ul, last_ul_total);
+  if(moo)
+    fclose(moo);
+  else
+    curl_mfprintf(stderr, "Progress: end UL, can't open %s\n", libtest_arg2);
+  started = FALSE;
+}
+
 static int progress_callback(void *clientp, double dltotal, double dlnow,
                              double ultotal, double ulnow)
 {
-  static int prev_ultotal = -1;
-  static int prev_ulnow = -1;
   (void)clientp; /* UNUSED */
   (void)dltotal; /* UNUSED */
   (void)dlnow; /* UNUSED */
 
-  /* to avoid depending on timing, which will cause this progress function to
-     get called a different number of times depending on circumstances, we
-     only log these lines if the numbers are different from the previous
-     invoke */
-  if((prev_ultotal != (int)ultotal) ||
-     (prev_ulnow != (int)ulnow)) {
-
-    FILE *moo = fopen(libtest_arg2, "ab");
-    if(moo) {
-      fprintf(moo, "Progress callback called with UL %d out of %d\n",
-              (int)ulnow, (int)ultotal);
-      fclose(moo);
-    }
-    prev_ulnow = (int) ulnow;
-    prev_ultotal = (int) ultotal;
+  if(started && ulnow <= 0.0 && last_ul) {
+    progress_final_report();
   }
+
+  last_ul = (size_t)ulnow;
+  last_ul_total = (size_t)ultotal;
+  if(!started) {
+    FILE *moo = fopen(libtest_arg2, "ab");
+    curl_mfprintf(moo ? moo : stderr, "Progress: start UL %zu/%zu\n",
+                                last_ul, last_ul_total);
+    if(moo)
+      fclose(moo);
+    else
+      curl_mfprintf(stderr, "Progress: start UL, can't open %s\n",
+                    libtest_arg2);
+    started = TRUE;
+  }
+
   return 0;
 }
 
@@ -74,7 +90,7 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
   if(size*nmemb < 1)
     return 0;
 
-  data = post[pooh->counter];
+  data = testpost[pooh->counter];
 
   if(data) {
     size_t len = strlen(data);
@@ -94,20 +110,20 @@ CURLcode test(char *URL)
   pooh.counter = 0;
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-    fprintf(stderr, "curl_global_init() failed\n");
+    curl_mfprintf(stderr, "curl_global_init() failed\n");
     return TEST_ERR_MAJOR_BAD;
   }
 
   curl = curl_easy_init();
   if(!curl) {
-    fprintf(stderr, "curl_easy_init() failed\n");
+    curl_mfprintf(stderr, "curl_easy_init() failed\n");
     curl_global_cleanup();
     return TEST_ERR_MAJOR_BAD;
   }
 
   slist = curl_slist_append(slist, "Transfer-Encoding: chunked");
   if(!slist) {
-    fprintf(stderr, "curl_slist_append() failed\n");
+    curl_mfprintf(stderr, "curl_slist_append() failed\n");
     curl_easy_cleanup(curl);
     curl_global_cleanup();
     return TEST_ERR_MAJOR_BAD;
@@ -139,12 +155,12 @@ CURLcode test(char *URL)
 
   /* we want to use our own progress function */
   test_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-  CURL_IGNORE_DEPRECATION(
-    test_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
-  )
+  test_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
 
   /* Perform the request, res will get the return code */
   res = curl_easy_perform(curl);
+
+  progress_final_report();
 
 test_cleanup:
 

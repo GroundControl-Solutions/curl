@@ -31,17 +31,17 @@
 
 #include "memdebug.h"
 
-static char data [] = "Hello Cloud!\n";
+static char testdata[] = "Hello Cloud!\n";
 
 static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   size_t  amount = nmemb * size; /* Total bytes curl wants */
-  if(amount < strlen(data)) {
-    return strlen(data);
+  if(amount < strlen(testdata)) {
+    return strlen(testdata);
   }
   (void)stream;
-  memcpy(ptr, data, strlen(data));
-  return strlen(data);
+  memcpy(ptr, testdata, strlen(testdata));
+  return strlen(testdata);
 }
 
 CURLcode test(char *URL)
@@ -52,13 +52,13 @@ CURLcode test(char *URL)
   struct curl_slist *hhl = NULL, *phl = NULL, *tmp = NULL;
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-    fprintf(stderr, "curl_global_init() failed\n");
+    curl_mfprintf(stderr, "curl_global_init() failed\n");
     return TEST_ERR_MAJOR_BAD;
   }
 
   curl = curl_easy_init();
   if(!curl) {
-    fprintf(stderr, "curl_easy_init() failed\n");
+    curl_mfprintf(stderr, "curl_easy_init() failed\n");
     curl_global_cleanup();
     return TEST_ERR_MAJOR_BAD;
   }
@@ -78,16 +78,16 @@ CURLcode test(char *URL)
   test_setopt(curl, CURLOPT_PROXY, libtest_arg2);
   test_setopt(curl, CURLOPT_HTTPHEADER, hhl);
   test_setopt(curl, CURLOPT_PROXYHEADER, phl);
-  test_setopt(curl, CURLOPT_HEADEROPT, CURLHEADER_SEPARATE);
+  test_setopt(curl, CURLOPT_HEADEROPT, (long)CURLHEADER_SEPARATE);
   test_setopt(curl, CURLOPT_POST, 0L);
   test_setopt(curl, CURLOPT_UPLOAD, 1L);
   test_setopt(curl, CURLOPT_VERBOSE, 1L);
-  test_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_HTTP);
+  test_setopt(curl, CURLOPT_PROXYTYPE, (long)CURLPROXY_HTTP);
   test_setopt(curl, CURLOPT_HEADER, 1L);
   test_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
   test_setopt(curl, CURLOPT_READFUNCTION, read_callback);
   test_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1L);
-  test_setopt(curl, CURLOPT_INFILESIZE, (long)strlen(data));
+  test_setopt(curl, CURLOPT_INFILESIZE, (long)strlen(testdata));
 
   res = curl_easy_perform(curl);
 

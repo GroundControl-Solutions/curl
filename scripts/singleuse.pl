@@ -42,12 +42,13 @@ if($ARGV[0] eq "--unit") {
 my $file = $ARGV[0];
 
 my %wl = (
-    'curlx_uztoso' => 'cmdline tool use',
     'Curl_xfer_write_resp' => 'internal api',
     'Curl_creader_def_init' => 'internal api',
     'Curl_creader_def_close' => 'internal api',
     'Curl_creader_def_read' => 'internal api',
     'Curl_creader_def_total_length' => 'internal api',
+    'Curl_meta_reset' => 'internal api',
+    'Curl_trc_dns' => 'internal api',
 );
 
 my %api = (
@@ -62,6 +63,8 @@ my %api = (
     'curl_easy_reset' => 'API',
     'curl_easy_send' => 'API',
     'curl_easy_setopt' => 'API',
+    'curl_easy_ssls_export' => 'API',
+    'curl_easy_ssls_import' => 'API',
     'curl_easy_strerror' => 'API',
     'curl_easy_unescape' => 'API',
     'curl_easy_upkeep' => 'API',
@@ -152,7 +155,7 @@ my %api = (
 
 sub doublecheck {
     my ($f, $used) = @_;
-    open(F, "git grep -le '$f\\W' -- lib ${unittests}packages|");
+    open(F, "git grep -Fwle '$f' -- lib ${unittests}packages|");
     my @also;
     while(<F>) {
         my $e = $_;
@@ -180,13 +183,17 @@ while (<N>) {
     if($l =~ /^([0-9a-z_-]+)\.o:/) {
         $file = $1;
     }
-    if($l =~ /^([0-9a-f]+) T (.*)/) {
+    # libcurl.a(unity_0_c.c.o):
+    elsif($l =~ /\(([0-9a-z_.-]+)\.o\):/) {  # Apple nm
+        $file = $1;
+    }
+    if($l =~ /^([0-9a-f]+) T _?(.*)/) {
         my ($name)=($2);
         #print "Define $name in $file\n";
         $file =~ s/^libcurl_la-//;
         $exist{$name} = $file;
     }
-    elsif($l =~ /^                 U (.*)/) {
+    elsif($l =~ /^                 U _?(.*)/) {
         my ($name)=($1);
         #print "Uses $name in $file\n";
         $uses{$name} .= "$file, ";

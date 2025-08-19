@@ -33,10 +33,12 @@ aren't:are not
  a html: an html
  a http: an http
  a ftp: an ftp
+ a IPv4: an IPv4
+ a IPv6: an IPv6
  url =URL
 internet\b=Internet
 isation:ization
-it's:it is
+\bit's:it is
 it'd:it would
 there's:there is
 [^.]\. And: Rewrite it somehow?
@@ -65,3 +67,9 @@ couldn't:could not
 64 bit\b=64-bit
 64-bits:64 bits or 64-bit
 32-bits:32 bits or 32-bit
+\bvery\b:rephrase using an alternative word
+\bCurl\b=curl
+\bLibcurl\b=libcurl
+---WWW::Curl
+---NET::Curl
+---Curl Corporation

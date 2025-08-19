@@ -48,9 +48,6 @@ typedef enum {
  */
 struct pingpong {
   size_t nread_resp;  /* number of bytes currently read of a server response */
-  bool pending_resp;  /* set TRUE when a server response is pending or in
-                         progress, and is cleared once the last response is
-                         read */
   char *sendthis; /* pointer to a buffer that is to be sent to the server */
   size_t sendleft; /* number of bytes left to send from the sendthis buffer */
   size_t sendsize; /* total size of the sendthis buffer */
@@ -69,14 +66,18 @@ struct pingpong {
 
   CURLcode (*statemachine)(struct Curl_easy *data, struct connectdata *conn);
   bool (*endofresp)(struct Curl_easy *data, struct connectdata *conn,
-                    char *ptr, size_t len, int *code);
+                    const char *ptr, size_t len, int *code);
+  BIT(initialised);
+  BIT(pending_resp);  /* set TRUE when a server response is pending or in
+                         progress, and is cleared once the last response is
+                         read */
 };
 
 #define PINGPONG_SETUP(pp,s,e)                   \
   do {                                           \
-    pp->response_time = RESP_TIMEOUT;            \
-    pp->statemachine = s;                        \
-    pp->endofresp = e;                           \
+    (pp)->response_time = RESP_TIMEOUT;          \
+    (pp)->statemachine = s;                      \
+    (pp)->endofresp = e;                         \
   } while(0)
 
 /*
@@ -137,6 +138,8 @@ CURLcode Curl_pp_readresp(struct Curl_easy *data,
                           int *code, /* return the server code if done */
                           size_t *size); /* size of the response */
 
+bool Curl_pp_needs_flush(struct Curl_easy *data,
+                         struct pingpong *pp);
 
 CURLcode Curl_pp_flushsend(struct Curl_easy *data,
                            struct pingpong *pp);

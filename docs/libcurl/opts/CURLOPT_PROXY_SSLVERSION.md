@@ -116,7 +116,7 @@ int main(void)
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com");
 
     /* ask libcurl to use TLS version 1.0 or later */
-    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1);
+    curl_easy_setopt(curl, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1);
 
     /* Perform the request */
     curl_easy_perform(curl);
@@ -128,4 +128,7 @@ int main(void)
 
 # RETURN VALUE
 
-Returns CURLE_OK if the option is supported, and CURLE_UNKNOWN_OPTION if not.
+curl_easy_setopt(3) returns a CURLcode indicating success or error.
+
+CURLE_OK (0) means everything was OK, non-zero means an error occurred, see
+libcurl-errors(3).

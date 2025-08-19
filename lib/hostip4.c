@@ -54,24 +54,11 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
-/*
- * Curl_ipvalid() checks what CURL_IPRESOLVE_* requirements that might've
- * been set and returns TRUE if they are OK.
- */
-bool Curl_ipvalid(struct Curl_easy *data, struct connectdata *conn)
-{
-  (void)data;
-  if(conn->ip_version == CURL_IPRESOLVE_V6)
-    /* An IPv6 address was requested and we cannot get/use one */
-    return FALSE;
-
-  return TRUE; /* OK, proceed */
-}
 
 #ifdef CURLRES_SYNCH
 
 /*
- * Curl_getaddrinfo() - the IPv4 synchronous version.
+ * Curl_sync_getaddrinfo() - the IPv4 synchronous version.
  *
  * The original code to this function was from the Dancer source code, written
  * by Bjorn Reese, it has since been patched and modified considerably.
@@ -82,22 +69,21 @@ bool Curl_ipvalid(struct Curl_easy *data, struct connectdata *conn)
  * detect which one this platform supports in the configure script and set up
  * the HAVE_GETHOSTBYNAME_R_3, HAVE_GETHOSTBYNAME_R_5 or
  * HAVE_GETHOSTBYNAME_R_6 defines accordingly. Note that HAVE_GETADDRBYNAME
- * has the corresponding rules. This is primarily on *nix. Note that some unix
+ * has the corresponding rules. This is primarily on *nix. Note that some Unix
  * flavours have thread-safe versions of the plain gethostbyname() etc.
  *
  */
-struct Curl_addrinfo *Curl_getaddrinfo(struct Curl_easy *data,
-                                       const char *hostname,
-                                       int port,
-                                       int *waitp)
+struct Curl_addrinfo *Curl_sync_getaddrinfo(struct Curl_easy *data,
+                                            const char *hostname,
+                                            int port,
+                                            int ip_version)
 {
   struct Curl_addrinfo *ai = NULL;
 
+  (void)ip_version;
 #ifdef CURL_DISABLE_VERBOSE_STRINGS
   (void)data;
 #endif
-
-  *waitp = 0; /* synchronous response only */
 
   ai = Curl_ipv4_resolve_r(hostname, port);
   if(!ai)
@@ -126,8 +112,10 @@ struct Curl_addrinfo *Curl_ipv4_resolve_r(const char *hostname,
   int res;
 #endif
   struct Curl_addrinfo *ai = NULL;
+#if !(defined(HAVE_GETADDRINFO) && defined(HAVE_GETADDRINFO_THREADSAFE))
   struct hostent *h = NULL;
   struct hostent *buf = NULL;
+#endif
 
 #if defined(HAVE_GETADDRINFO) && defined(HAVE_GETADDRINFO_THREADSAFE)
   struct addrinfo hints;
@@ -221,7 +209,7 @@ struct Curl_addrinfo *Curl_ipv4_resolve_r(const char *hostname,
 
   if(!h) /* failure */
 #elif defined(HAVE_GETHOSTBYNAME_R_3)
-  /* AIX, Digital Unix/Tru64, HPUX 10, more? */
+  /* AIX, Digital UNIX/Tru64, HP-UX 10, more? */
 
   /* For AIX 4.3 or later, we do not use gethostbyname_r() at all, because of
    * the plain fact that it does not return unique full buffers on each
@@ -284,16 +272,18 @@ struct Curl_addrinfo *Curl_ipv4_resolve_r(const char *hostname,
    * getaddrinfo() nor gethostbyname_r() function or for which
    * gethostbyname() is the preferred one.
    */
-  h = gethostbyname((void *)hostname);
+  h = gethostbyname(CURL_UNCONST(hostname));
 #endif /* (HAVE_GETADDRINFO && HAVE_GETADDRINFO_THREADSAFE) ||
            HAVE_GETHOSTBYNAME_R */
 
+#if !(defined(HAVE_GETADDRINFO) && defined(HAVE_GETADDRINFO_THREADSAFE))
   if(h) {
     ai = Curl_he2ai(h, port);
 
     if(buf) /* used a *_r() function */
       free(buf);
   }
+#endif
 
   return ai;
 }

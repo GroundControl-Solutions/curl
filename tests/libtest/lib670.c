@@ -21,11 +21,6 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-
-#if !defined(LIB670) && !defined(LIB671)
-#define CURL_DISABLE_DEPRECATION  /* Using and testing the form api */
-#endif
-
 #include "test.h"
 
 #include <time.h>
@@ -35,7 +30,7 @@
 #define PAUSE_TIME      5
 
 
-static const char name[] = "field";
+static const char testname[] = "field";
 
 struct ReadThis {
   CURL *easy;
@@ -61,12 +56,12 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
     return CURL_READFUNC_PAUSE;
   case 2:
     delta = time(NULL) - pooh->origin;
-    *ptr = delta >= PAUSE_TIME? '\x42': '\x41'; /* ASCII A or B. */
+    *ptr = delta >= PAUSE_TIME ? '\x42' : '\x41'; /* ASCII A or B. */
     return 1;
   case 3:
     return 0;
   }
-  fprintf(stderr, "Read callback called after EOF\n");
+  curl_mfprintf(stderr, "Read callback called after EOF\n");
   exit(1);
 }
 
@@ -85,7 +80,7 @@ static int xferinfo(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
     time_t delta = time(NULL) - pooh->origin;
 
     if(delta >= 4 * PAUSE_TIME) {
-      fprintf(stderr, "unpausing failed: drain problem?\n");
+      curl_mfprintf(stderr, "unpausing failed: drain problem?\n");
       return CURLE_ABORTED_BY_CALLBACK;
     }
 
@@ -123,7 +118,7 @@ CURLcode test(char *URL)
    */
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-    fprintf(stderr, "curl_global_init() failed\n");
+    curl_mfprintf(stderr, "curl_global_init() failed\n");
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -144,9 +139,9 @@ CURLcode test(char *URL)
   /* Build the mime tree. */
   mime = curl_mime_init(pooh.easy);
   part = curl_mime_addpart(mime);
-  res = curl_mime_name(part, name);
+  res = curl_mime_name(part, testname);
   if(res != CURLE_OK) {
-    fprintf(stderr,
+    curl_mfprintf(stderr,
             "Something went wrong when building the mime structure: %d\n",
             res);
     goto test_cleanup;
@@ -161,12 +156,12 @@ CURLcode test(char *URL)
 #else
   /* Build the form. */
   formrc = curl_formadd(&formpost, &lastptr,
-                        CURLFORM_COPYNAME, name,
+                        CURLFORM_COPYNAME, testname,
                         CURLFORM_STREAM, &pooh,
                         CURLFORM_CONTENTLEN, (curl_off_t) 2,
                         CURLFORM_END);
   if(formrc) {
-    fprintf(stderr, "curl_formadd() = %d\n", (int) formrc);
+    curl_mfprintf(stderr, "curl_formadd() = %d\n", (int) formrc);
     goto test_cleanup;
   }
 
@@ -197,7 +192,7 @@ CURLcode test(char *URL)
       time_t delta = time(NULL) - pooh.origin;
 
       if(delta >= 4 * PAUSE_TIME) {
-        fprintf(stderr, "unpausing failed: drain problem?\n");
+        curl_mfprintf(stderr, "unpausing failed: drain problem?\n");
         res = CURLE_OPERATION_TIMEDOUT;
         break;
       }
@@ -214,14 +209,14 @@ CURLcode test(char *URL)
     mres = curl_multi_fdset(multi, &fdread, &fdwrite, &fdexcept, &maxfd);
     if(mres)
       break;
-#if defined(_WIN32)
+#ifdef _WIN32
     if(maxfd == -1)
       Sleep(100);
     else
 #endif
     rc = select(maxfd + 1, &fdread, &fdwrite, &fdexcept, &timeout);
     if(rc == -1) {
-      fprintf(stderr, "Select error\n");
+      curl_mfprintf(stderr, "Select error\n");
       break;
     }
   }

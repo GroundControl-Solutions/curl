@@ -27,8 +27,8 @@
 #include "warnless.h"
 #include "memdebug.h"
 
-static const char cmd[] = "A1 IDLE\r\n";
-static char buf[1024];
+static const char testcmd[] = "A1 IDLE\r\n";
+static char testbuf[1024];
 
 CURLcode test(char *URL)
 {
@@ -65,7 +65,7 @@ CURLcode test(char *URL)
         curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &sock);
         if(sock == CURL_SOCKET_BAD)
           goto test_cleanup;
-        printf("Connected fine, extracted socket. Moving on\n");
+        curl_mprintf("Connected fine, extracted socket. Moving on\n");
       }
     }
 
@@ -75,16 +75,20 @@ CURLcode test(char *URL)
       curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &sock);
       waitfd.fd = sock;
     }
-    curl_multi_wait(mcurl, &waitfd, sock == CURL_SOCKET_BAD ? 0 : 1, 500,
+    curl_multi_wait(mcurl, &waitfd, sock == CURL_SOCKET_BAD ? 0 : 1, 50,
                     &mrun);
     if((sock != CURL_SOCKET_BAD) && (waitfd.revents & waitfd.events)) {
       size_t len = 0;
 
       if(!state) {
         CURLcode ec;
-        ec = curl_easy_send(curl, cmd + pos, sizeof(cmd) - 1 - pos, &len);
-        if(ec != CURLE_OK) {
-          fprintf(stderr, "curl_easy_send() failed, with code %d (%s)\n",
+        ec = curl_easy_send(curl, testcmd + pos,
+                            sizeof(testcmd) - 1 - pos, &len);
+        if(ec == CURLE_AGAIN) {
+          continue;
+        }
+        else if(ec) {
+          curl_mfprintf(stderr, "curl_easy_send() failed, with code %d (%s)\n",
                   (int)ec, curl_easy_strerror(ec));
           res = ec;
           goto test_cleanup;
@@ -93,16 +97,19 @@ CURLcode test(char *URL)
           pos += len;
         else
           pos = 0;
-        if(pos == sizeof(cmd) - 1) {
+        if(pos == sizeof(testcmd) - 1) {
           state++;
           pos = 0;
         }
       }
-      else if(pos < (ssize_t)sizeof(buf)) {
+      else if(pos < (ssize_t)sizeof(testbuf)) {
         CURLcode ec;
-        ec = curl_easy_recv(curl, buf + pos, sizeof(buf) - pos, &len);
-        if(ec != CURLE_OK) {
-          fprintf(stderr, "curl_easy_recv() failed, with code %d (%s)\n",
+        ec = curl_easy_recv(curl, testbuf + pos, sizeof(testbuf) - pos, &len);
+        if(ec == CURLE_AGAIN) {
+          continue;
+        }
+        else if(ec) {
+          curl_mfprintf(stderr, "curl_easy_recv() failed, with code %d (%s)\n",
                   (int)ec, curl_easy_strerror(ec));
           res = ec;
           goto test_cleanup;
@@ -116,7 +123,7 @@ CURLcode test(char *URL)
   }
 
   if(state) {
-    fwrite(buf, pos, 1, stdout);
+    fwrite(testbuf, pos, 1, stdout);
     putchar('\n');
   }
 

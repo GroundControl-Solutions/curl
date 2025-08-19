@@ -21,9 +21,6 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#ifndef CURL_DISABLE_DEPRECATION
-#define CURL_DISABLE_DEPRECATION  /* Using and testing the form api */
-#endif
 #include "test.h"
 
 CURLcode test(char *URL)
@@ -48,7 +45,6 @@ CURLcode test(char *URL)
 test_cleanup:
 
   curl_formfree(m_formpost);
-
   curl_easy_cleanup(eh);
   curl_global_cleanup();
 

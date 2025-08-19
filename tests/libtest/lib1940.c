@@ -9,7 +9,7 @@
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at https://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -26,7 +26,7 @@
 
 #include "memdebug.h"
 
-static const char *show[]={
+static const char *testdata[]={
   "daTE",
   "Server",
   "content-type",
@@ -50,27 +50,27 @@ static void showem(CURL *easy, unsigned int type)
 {
   int i;
   struct curl_header *header;
-  for(i = 0; show[i]; i++) {
-    if(CURLHE_OK == curl_easy_header(easy, show[i], 0, type, HEADER_REQUEST,
-                                     &header)) {
+  for(i = 0; testdata[i]; i++) {
+    if(CURLHE_OK == curl_easy_header(easy, testdata[i], 0, type,
+                                     HEADER_REQUEST, &header)) {
       if(header->amount > 1) {
         /* more than one, iterate over them */
         size_t index = 0;
         size_t amount = header->amount;
         do {
-          printf("- %s == %s (%u/%u)\n", header->name, header->value,
-                 (int)index, (int)amount);
+          curl_mprintf("- %s == %s (%u/%u)\n", header->name, header->value,
+                       (int)index, (int)amount);
 
           if(++index == amount)
             break;
-          if(CURLHE_OK != curl_easy_header(easy, show[i], index, type,
+          if(CURLHE_OK != curl_easy_header(easy, testdata[i], index, type,
                                            HEADER_REQUEST, &header))
             break;
         } while(1);
       }
       else {
         /* only one of this */
-        printf(" %s == %s\n", header->name, header->value);
+        curl_mprintf(" %s == %s\n", header->name, header->value);
       }
     }
   }

@@ -21,10 +21,10 @@ Example:
 
 # `--json`
 
-Sends the specified JSON data in a POST request to the HTTP server. --json
+Send the specified JSON data in a POST request to the HTTP server. --json
 works as a shortcut for passing on these three options:
 
-    --data [arg]
+    --data-binary [arg]
     --header "Content-Type: application/json"
     --header "Accept: application/json"
 

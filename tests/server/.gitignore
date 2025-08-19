@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: curl
 
-fake_ntlm
-getpart
+server_bundle.c
+servers
+buildinfo
+dnsd
+mqttd
 resolve
 rtspd
 sockfilt
+socksd
 sws
 tftpd
-socksd
-disabled
-mqttd

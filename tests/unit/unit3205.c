@@ -34,7 +34,8 @@ static void unit_stop(void)
 {
 }
 
-#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_BEARSSL)
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || \
+    defined(USE_BEARSSL) || defined(USE_RUSTLS)
 
 struct test_cs_entry {
   uint16_t id;
@@ -42,6 +43,31 @@ struct test_cs_entry {
   const char *openssl;
 };
 static const struct test_cs_entry test_cs_list[] = {
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_RUSTLS)
+  { 0x1301, "TLS_AES_128_GCM_SHA256",
+            NULL },
+  { 0x1302, "TLS_AES_256_GCM_SHA384",
+            NULL },
+  { 0x1303, "TLS_CHACHA20_POLY1305_SHA256",
+            NULL },
+  { 0x1304, "TLS_AES_128_CCM_SHA256",
+            NULL },
+  { 0x1305, "TLS_AES_128_CCM_8_SHA256",
+            NULL },
+#endif
+  { 0xC02B, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+            "ECDHE-ECDSA-AES128-GCM-SHA256" },
+  { 0xC02C, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+            "ECDHE-ECDSA-AES256-GCM-SHA384" },
+  { 0xC02F, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+            "ECDHE-RSA-AES128-GCM-SHA256" },
+  { 0xC030, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+            "ECDHE-RSA-AES256-GCM-SHA384" },
+  { 0xCCA8, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+            "ECDHE-RSA-CHACHA20-POLY1305" },
+  { 0xCCA9, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+            "ECDHE-ECDSA-CHACHA20-POLY1305" },
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_BEARSSL)
   { 0x002F, "TLS_RSA_WITH_AES_128_CBC_SHA",
             "AES128-SHA" },
   { 0x0035, "TLS_RSA_WITH_AES_256_CBC_SHA",
@@ -86,26 +112,15 @@ static const struct test_cs_entry test_cs_list[] = {
             "ECDH-RSA-AES128-SHA256" },
   { 0xC02A, "TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384",
             "ECDH-RSA-AES256-SHA384" },
-  { 0xC02B, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-            "ECDHE-ECDSA-AES128-GCM-SHA256" },
-  { 0xC02C, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
-            "ECDHE-ECDSA-AES256-GCM-SHA384" },
   { 0xC02D, "TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256",
             "ECDH-ECDSA-AES128-GCM-SHA256" },
   { 0xC02E, "TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384",
             "ECDH-ECDSA-AES256-GCM-SHA384" },
-  { 0xC02F, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-            "ECDHE-RSA-AES128-GCM-SHA256" },
-  { 0xC030, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-            "ECDHE-RSA-AES256-GCM-SHA384" },
   { 0xC031, "TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256",
             "ECDH-RSA-AES128-GCM-SHA256" },
   { 0xC032, "TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384",
             "ECDH-RSA-AES256-GCM-SHA384" },
-  { 0xCCA8, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
-            "ECDHE-RSA-CHACHA20-POLY1305" },
-  { 0xCCA9, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
-            "ECDHE-ECDSA-CHACHA20-POLY1305" },
+#endif
 #if defined(USE_SECTRANSP) || defined(USE_MBEDTLS)
   { 0x0001, "TLS_RSA_WITH_NULL_MD5",
             "NULL-MD5" },
@@ -179,16 +194,6 @@ static const struct test_cs_entry test_cs_list[] = {
             "RSA-PSK-NULL-SHA256" },
   { 0x00B9, "TLS_RSA_PSK_WITH_NULL_SHA384",
             "RSA-PSK-NULL-SHA384" },
-  { 0x1301, "TLS_AES_128_GCM_SHA256",
-            NULL },
-  { 0x1302, "TLS_AES_256_GCM_SHA384",
-            NULL },
-  { 0x1303, "TLS_CHACHA20_POLY1305_SHA256",
-            NULL },
-  { 0x1304, "TLS_AES_128_CCM_SHA256",
-            NULL },
-  { 0x1305, "TLS_AES_128_CCM_8_SHA256",
-            NULL },
   { 0xC001, "TLS_ECDH_ECDSA_WITH_NULL_SHA",
             "ECDH-ECDSA-NULL-SHA" },
   { 0xC006, "TLS_ECDHE_ECDSA_WITH_NULL_SHA",
@@ -581,7 +586,6 @@ static const struct test_cs_entry test_cs_list[] = {
             "RSA-PSK-CHACHA20-POLY1305" },
 #endif
 };
-#define TEST_CS_LIST_LEN (sizeof(test_cs_list) / sizeof(test_cs_list[0]))
 
 static const char *cs_test_string =
   "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:"
@@ -604,7 +608,7 @@ struct test_str_entry {
   const char *str;
 };
 static const struct test_str_entry test_str_list[] = {
-#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS)
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_RUSTLS)
   { 0x1301, "TLS_AES_128_GCM_SHA256"},
   { 0x1302, "TLS_AES_256_GCM_SHA384"},
   { 0x1303, "TLS_CHACHA20_POLY1305_SHA256"},
@@ -631,6 +635,7 @@ static const struct test_str_entry test_str_list[] = {
 #else
   { 0x0000, "DHE-RSA-CHACHA20-POLY1305"},
 #endif
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_BEARSSL)
   { 0xC023, "ECDHE-ECDSA-AES128-SHA256" },
   { 0xC027, "ECDHE-RSA-AES128-SHA256" },
   { 0xC009, "ECDHE-ECDSA-AES128-SHA" },
@@ -639,6 +644,16 @@ static const struct test_str_entry test_str_list[] = {
   { 0xC028, "ECDHE-RSA-AES256-SHA384" },
   { 0xC00A, "ECDHE-ECDSA-AES256-SHA" },
   { 0xC014, "ECDHE-RSA-AES256-SHA" },
+#else
+  { 0x0000, "ECDHE-ECDSA-AES128-SHA256" },
+  { 0x0000, "ECDHE-RSA-AES128-SHA256" },
+  { 0x0000, "ECDHE-ECDSA-AES128-SHA" },
+  { 0x0000, "ECDHE-RSA-AES128-SHA" },
+  { 0x0000, "ECDHE-ECDSA-AES256-SHA384" },
+  { 0x0000, "ECDHE-RSA-AES256-SHA384" },
+  { 0x0000, "ECDHE-ECDSA-AES256-SHA" },
+  { 0x0000, "ECDHE-RSA-AES256-SHA" },
+#endif
 #if defined(USE_SECTRANSP) || defined(USE_MBEDTLS)
   { 0x0067, "DHE-RSA-AES128-SHA256" },
   { 0x006B, "DHE-RSA-AES256-SHA256" },
@@ -646,12 +661,21 @@ static const struct test_str_entry test_str_list[] = {
   { 0x0000, "DHE-RSA-AES128-SHA256" },
   { 0x0000, "DHE-RSA-AES256-SHA256" },
 #endif
+#if defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || defined(USE_BEARSSL)
   { 0x009C, "AES128-GCM-SHA256" },
   { 0x009D, "AES256-GCM-SHA384" },
   { 0x003C, "AES128-SHA256" },
   { 0x003D, "AES256-SHA256" },
   { 0x002F, "AES128-SHA" },
   { 0x0035, "AES256-SHA" },
+#else
+  { 0x0000, "AES128-GCM-SHA256" },
+  { 0x0000, "AES256-GCM-SHA384" },
+  { 0x0000, "AES128-SHA256" },
+  { 0x0000, "AES256-SHA256" },
+  { 0x0000, "AES128-SHA" },
+  { 0x0000, "AES256-SHA" },
+#endif
 #if defined(USE_SECTRANSP) || defined(USE_BEARSSL)
   { 0x000A, "DES-CBC3-SHA" },
 #else
@@ -660,11 +684,10 @@ static const struct test_str_entry test_str_list[] = {
   { 0x0000, "GIBBERISH" },
   { 0x0000, "" },
 };
-#define TEST_STR_LIST_LEN (sizeof(test_str_list) / sizeof(test_str_list[0]))
 
 UNITTEST_START
 {
-  for(size_t i = 0; i < TEST_CS_LIST_LEN; i++) {
+  for(size_t i = 0; i < CURL_ARRAYSIZE(test_cs_list); i++) {
     const struct test_cs_entry *test = &test_cs_list[i];
     const char *expect;
     char buf[64] = "";
@@ -675,9 +698,9 @@ UNITTEST_START
     if(test->rfc) {
       id = Curl_cipher_suite_lookup_id(test->rfc, strlen(test->rfc));
       if(id != test->id) {
-        fprintf(stderr, "Curl_cipher_suite_lookup_id FAILED for \"%s\", "
-                        "result = 0x%04x, expected = 0x%04x\n",
-                        test->rfc, id, test->id);
+        curl_mfprintf(stderr, "Curl_cipher_suite_lookup_id FAILED for \"%s\", "
+                      "result = 0x%04x, expected = 0x%04x\n",
+                      test->rfc, id, test->id);
         unitfail++;
       }
     }
@@ -686,9 +709,9 @@ UNITTEST_START
     if(test->openssl) {
       id = Curl_cipher_suite_lookup_id(test->openssl, strlen(test->openssl));
       if(id != test->id) {
-        fprintf(stderr, "Curl_cipher_suite_lookup_id FAILED for \"%s\", "
-                        "result = 0x%04x, expected = 0x%04x\n",
-                        test->openssl, id, test->id);
+        curl_mfprintf(stderr, "Curl_cipher_suite_lookup_id FAILED for \"%s\", "
+                      "result = 0x%04x, expected = 0x%04x\n",
+                      test->openssl, id, test->id);
         unitfail++;
       }
     }
@@ -699,10 +722,10 @@ UNITTEST_START
 
     Curl_cipher_suite_get_str(test->id, buf, sizeof(buf), true);
 
-    if(strcmp(buf, expect) != 0) {
-      fprintf(stderr, "Curl_cipher_suite_get_str FAILED for 0x%04x, "
-                      "result = \"%s\", expected = \"%s\"\n",
-                      test->id, buf, expect);
+    if(expect && strcmp(buf, expect) != 0) {
+      curl_mfprintf(stderr, "Curl_cipher_suite_get_str FAILED for 0x%04x, "
+                    "result = \"%s\", expected = \"%s\"\n",
+                    test->id, buf, expect);
       unitfail++;
     }
 
@@ -714,16 +737,16 @@ UNITTEST_START
 
     /* suites matched by EDH alias will return the DHE name */
     if(test->id >= 0x0011 && test->id < 0x0017) {
-      if(memcmp(expect, "EDH-", 4) == 0)
+      if(expect && memcmp(expect, "EDH-", 4) == 0)
         expect = (char *) memcpy(strcpy(alt, expect), "DHE-", 4);
-      if(memcmp(expect + 4, "EDH-", 4) == 0)
+      if(expect && memcmp(expect + 4, "EDH-", 4) == 0)
         expect = (char *) memcpy(strcpy(alt, expect) + 4, "DHE-", 4) - 4;
     }
 
-    if(strcmp(buf, expect) != 0) {
-      fprintf(stderr, "Curl_cipher_suite_get_str FAILED for 0x%04x, "
-                      "result = \"%s\", expected = \"%s\"\n",
-                      test->id, buf, expect);
+    if(expect && strcmp(buf, expect) != 0) {
+      curl_mfprintf(stderr, "Curl_cipher_suite_get_str FAILED for 0x%04x, "
+                    "result = \"%s\", expected = \"%s\"\n",
+                    test->id, buf, expect);
       unitfail++;
     }
   }
@@ -737,22 +760,22 @@ UNITTEST_START
 
     for(ptr = cs_test_string; ptr[0] != '\0'; ptr = end) {
       const struct test_str_entry *test = &test_str_list[i];
-      abort_if(i == TEST_STR_LIST_LEN, "should have been done");
+      abort_if(i == CURL_ARRAYSIZE(test_str_list), "should have been done");
 
       id = Curl_cipher_suite_walk_str(&ptr, &end);
       len = end - ptr;
 
       if(id != test->id) {
-        fprintf(stderr, "Curl_cipher_suite_walk_str FAILED for \"%s\" "
-                        "unexpected cipher, "
-                        "result = 0x%04x, expected = 0x%04x\n",
-                        test->str, id, test->id);
+        curl_mfprintf(stderr, "Curl_cipher_suite_walk_str FAILED for \"%s\" "
+                      "unexpected cipher, "
+                      "result = 0x%04x, expected = 0x%04x\n",
+                      test->str, id, test->id);
         unitfail++;
       }
       if(len > 64 || strncmp(ptr, test->str, len) != 0) {
-        fprintf(stderr, "Curl_cipher_suite_walk_str ABORT for \"%s\" "
-                        "unexpected pointers\n",
-                        test->str);
+        curl_mfprintf(stderr, "Curl_cipher_suite_walk_str ABORT for \"%s\" "
+                      "unexpected pointers\n",
+                      test->str);
         unitfail++;
         goto unit_test_abort;
       }
@@ -769,4 +792,4 @@ UNITTEST_START
 UNITTEST_STOP
 
 #endif /* defined(USE_SECTRANSP) || defined(USE_MBEDTLS) || \
-          defined(USE_BEARSSL) */
+          defined(USE_BEARSSL) || defined(USE_RUSTLS) */

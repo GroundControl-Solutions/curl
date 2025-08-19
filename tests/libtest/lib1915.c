@@ -23,6 +23,7 @@
  ***************************************************************************/
 #include "test.h"
 
+#include "testtrace.h"
 #include "testutil.h"
 #include "warnless.h"
 #include "memdebug.h"
@@ -65,7 +66,7 @@ static CURLSTScode hstsread(CURL *easy, struct curl_hstsentry *e,
     strcpy(e->name, host);
     e->includeSubDomains = FALSE;
     strcpy(e->expire, expire);
-    fprintf(stderr, "add '%s'\n", host);
+    curl_mfprintf(stderr, "add '%s'\n", host);
   }
   else
     return CURLSTS_DONE;
@@ -88,7 +89,7 @@ static CURLSTScode hstswrite(CURL *easy, struct curl_hstsentry *e,
 {
   (void)easy;
   (void)userp;
-  printf("[%zu/%zu] %s %s\n", i->index, i->total, e->name, e->expire);
+  curl_mprintf("[%zu/%zu] %s %s\n", i->index, i->total, e->name, e->expire);
   return CURLSTS_OK;
 }
 
@@ -104,30 +105,43 @@ CURLcode test(char *URL)
 
   global_init(CURL_GLOBAL_ALL);
 
+  libtest_debug_config.nohex = 1;
+  libtest_debug_config.tracetime = 1;
+
   easy_init(hnd);
   easy_setopt(hnd, CURLOPT_URL, URL);
+  easy_setopt(hnd, CURLOPT_CONNECTTIMEOUT, 1L);
   easy_setopt(hnd, CURLOPT_HSTSREADFUNCTION, hstsread);
   easy_setopt(hnd, CURLOPT_HSTSREADDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTSWRITEFUNCTION, hstswrite);
   easy_setopt(hnd, CURLOPT_HSTSWRITEDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTS_CTRL, CURLHSTS_ENABLE);
+  easy_setopt(hnd, CURLOPT_DEBUGDATA, &libtest_debug_config);
+  easy_setopt(hnd, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
   res = curl_easy_perform(hnd);
   curl_easy_cleanup(hnd);
   hnd = NULL;
-  printf("First request returned %d\n", res);
+  if(res == CURLE_OPERATION_TIMEDOUT) /* we expect that on Windows */
+    res = CURLE_COULDNT_CONNECT;
+  curl_mprintf("First request returned %d\n", res);
   res = CURLE_OK;
 
   easy_init(hnd);
   easy_setopt(hnd, CURLOPT_URL, URL);
+  easy_setopt(hnd, CURLOPT_CONNECTTIMEOUT, 1L);
   easy_setopt(hnd, CURLOPT_HSTSREADFUNCTION, hstsreadfail);
   easy_setopt(hnd, CURLOPT_HSTSREADDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTSWRITEFUNCTION, hstswrite);
   easy_setopt(hnd, CURLOPT_HSTSWRITEDATA, &st);
   easy_setopt(hnd, CURLOPT_HSTS_CTRL, CURLHSTS_ENABLE);
+  easy_setopt(hnd, CURLOPT_DEBUGDATA, &libtest_debug_config);
+  easy_setopt(hnd, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
   res = curl_easy_perform(hnd);
   curl_easy_cleanup(hnd);
   hnd = NULL;
-  printf("Second request returned %d\n", res);
+  curl_mprintf("Second request returned %d\n", res);
 
 test_cleanup:
   curl_easy_cleanup(hnd);

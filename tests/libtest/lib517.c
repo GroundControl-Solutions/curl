@@ -98,6 +98,15 @@ static const struct dcheck dates[] = {
   {"Thu Apr 18 22:50:12 2007 GMT", 1176936612 },
   {"Thu Apr 18 2007 22:50:12 GMT", 1176936612 },
   {"Thu Apr 18 2007 GMT 22:50:12", 1176936612 },
+
+  {"\"Thu Apr 18 22:50:12 2007 GMT\"", 1176936612 },
+  {"-\"22:50:12 Thu Apr 18 2007 GMT\"", 1176936612 },
+  {"*\"Thu 22:50:12 Apr 18 2007 GMT\"", 1176936612 },
+  {";\"Thu Apr 22:50:12 18 2007 GMT\"", 1176936612 },
+  {".\"Thu Apr 18 22:50:12 2007 GMT\"", 1176936612 },
+  {"\"Thu Apr 18 2007 22:50:12 GMT\"", 1176936612 },
+  {"\"Thu Apr 18 2007 GMT 22:50:12\"", 1176936612 },
+
   {"Sat, 15-Apr-17 21:01:22 GMT", 1492290082 },
   {"15-Sat, Apr-17 21:01:22 GMT", 1492290082 },
   {"15-Sat, Apr 21:01:22 GMT 17", 1492290082 },
@@ -163,7 +172,7 @@ CURLcode test(char *URL)
   for(i = 0; dates[i].input; i++) {
     time_t out = curl_getdate(dates[i].input, NULL);
     if(out != dates[i].output) {
-      printf("WRONGLY %s => %ld (instead of %ld)\n",
+      curl_mprintf("WRONGLY %s => %ld (instead of %ld)\n",
              dates[i].input, (long)out, (long)dates[i].output);
       error++;
     }

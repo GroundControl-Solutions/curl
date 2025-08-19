@@ -24,7 +24,7 @@
 #include "tool_setup.h"
 #include "tool_xattr.h"
 
-#include "memdebug.h" /* keep this as LAST include */
+#include <memdebug.h> /* keep this as LAST include */
 
 #ifdef USE_XATTR
 
@@ -114,7 +114,7 @@ static int xattr(int fd,
 int fwrite_xattr(CURL *curl, const char *url, int fd)
 {
   int i = 0;
-  int err = 0;
+  int err = xattr(fd, "user.creator", "curl");
 
   /* loop through all xattr-curlinfo pairs and abort on a set error */
   while(!err && mappings[i].attr) {

@@ -41,7 +41,7 @@ unit_stop(void)
 #if defined(CURL_DISABLE_HTTP) || defined(CURL_DISABLE_HSTS)
 UNITTEST_START
 {
-  return CURLE_OK; /* nothing to do when HTTP or HSTS are disabled */
+  puts("nothing to do when HTTP or HSTS are disabled");
 }
 UNITTEST_STOP
 #else
@@ -82,7 +82,7 @@ static const struct testit headers[] = {
   { "2.example.com", NULL,
     "max-age=\"21536000\"; includeSubDomains; includeSubDomains;",
     CURLE_BAD_FUNCTION_ARGUMENT },
-  /* use a unknown directive "include" that should be ignored */
+  /* use an unknown directive "include" that should be ignored */
   { "3.example.com", NULL, "max-age=\"21536000\"; include; includeSubDomains;",
     CURLE_OK },
   /* remove the "3.example.com" one, should still match the example.com */
@@ -111,13 +111,14 @@ static void showsts(struct stsentry *e, const char *chost)
   if(!e)
     printf("'%s' is not HSTS\n", chost);
   else {
-    printf("%s [%s]: %" CURL_FORMAT_CURL_OFF_T "%s\n",
-           chost, e->host, e->expires,
-           e->includeSubDomains ? " includeSubDomains" : "");
+    curl_mprintf("%s [%s]: %" CURL_FORMAT_CURL_OFF_T "%s\n",
+                 chost, e->host, e->expires,
+                 e->includeSubDomains ? " includeSubDomains" : "");
   }
 }
 
 UNITTEST_START
+{
   CURLcode result;
   struct stsentry *e;
   struct hsts *h = Curl_hsts_init();
@@ -143,8 +144,8 @@ UNITTEST_START
       result = Curl_hsts_parse(h, headers[i].host, headers[i].hdr);
 
       if(result != headers[i].result) {
-        fprintf(stderr, "Curl_hsts_parse(%s) failed: %d\n",
-                headers[i].hdr, result);
+        curl_mfprintf(stderr, "Curl_hsts_parse(%s) failed: %d\n",
+                      headers[i].hdr, result);
         unitfail++;
         continue;
       }
@@ -155,25 +156,25 @@ UNITTEST_START
     }
 
     chost = headers[i].chost ? headers[i].chost : headers[i].host;
-    e = Curl_hsts(h, chost, TRUE);
+    e = Curl_hsts(h, chost, strlen(chost), TRUE);
     showsts(e, chost);
   }
 
-  printf("Number of entries: %zu\n", h->list.size);
+  curl_mprintf("Number of entries: %zu\n", Curl_llist_count(&h->list));
 
   /* verify that it is exists for 7 seconds */
   chost = "expire.example";
   for(i = 100; i < 110; i++) {
-    e = Curl_hsts(h, chost, TRUE);
+    e = Curl_hsts(h, chost, strlen(chost), TRUE);
     showsts(e, chost);
     deltatime++; /* another second passed */
   }
 
-  msnprintf(savename, sizeof(savename), "%s.save", arg);
+  curl_msnprintf(savename, sizeof(savename), "%s.save", arg);
   (void)Curl_hsts_save(easy, h, savename);
   Curl_hsts_cleanup(&h);
   curl_easy_cleanup(easy);
   curl_global_cleanup();
-
+}
 UNITTEST_STOP
 #endif
