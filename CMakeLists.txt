@@ -25,10 +25,10 @@
 
 cmake_minimum_required(VERSION 3.7...3.16 FATAL_ERROR)
 if(POLICY CMP0042)
-	cmake_policy(SET CMP0042 NEW)
+    cmake_policy(SET CMP0042 NEW)
 endif()
 if(POLICY CMP0068)
-	cmake_policy(SET CMP0068 NEW)
+    cmake_policy(SET CMP0068 NEW)
 endif()
 message(STATUS "Using CMake version ${CMAKE_VERSION}")
 
