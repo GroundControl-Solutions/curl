@@ -3,6 +3,7 @@
 <keywords>
 HTTP
 --netrc-file
+netrc
 </keywords>
 </info>
 
@@ -19,7 +20,7 @@ Content-Length: 9
 
 contents
 </data>
-<connect>
+<connect crlf="headers">
 HTTP/1.1 200 Mighty fine indeed
 
 </connect>
@@ -61,16 +62,16 @@ proxy
 #
 # Verify data after the test has been "shot"
 <verify>
-<proxy>
+<proxy crlf="headers">
 CONNECT foo.host:%HTTPPORT HTTP/1.0
 Host: foo.host:%HTTPPORT
 Proxy-Connection: Keep-Alive
 
 </proxy>
-<protocol>
+<protocol crlf="headers">
 GET /%TESTNUMBER HTTP/1.1
 Host: foo.host:%HTTPPORT
-Authorization: Basic Zm9vOmJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYXI=
+Authorization: Basic %b64[foo:baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar]b64%
 Accept: */*
 
 </protocol>

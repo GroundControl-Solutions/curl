@@ -30,7 +30,7 @@ my @tabs = (
     "^m4/zz40-xc-ovr.m4",
     "Makefile\\.(am|example)\$",
     "/mkfile",
-    "\\.(bat|sln|vc)\$",
+    "\\.sln\$",
     "^tests/data/test",
 );
 
@@ -40,11 +40,6 @@ my @mixed_eol = (
 
 my @need_crlf = (
     "\\.(bat|sln)\$",
-    "^winbuild/.+\\.md\$",
-);
-
-my @space_at_eol = (
-    "^tests/data/test",
 );
 
 my @non_ascii_allowed = (
@@ -54,7 +49,7 @@ my @non_ascii_allowed = (
 my $non_ascii_allowed = join(', ', @non_ascii_allowed);
 
 my @non_ascii = (
-    ".github/scripts/spellcheck.words",
+    ".github/scripts/pyspelling.words",
     ".mailmap",
     "RELEASE-NOTES",
     "docs/BINDINGS.md",
@@ -130,9 +125,14 @@ while(my $filename = <$git_ls_files>) {
         push @err, "content: must use LF EOL for this file type";
     }
 
-    if(!fn_match($filename, @space_at_eol) &&
-        $content =~ /[ \t]\n/) {
-        push @err, "content: has line-ending whitespace";
+    if($content =~ /[ \t]\n/) {
+        my $line;
+        for my $l (split(/\n/, $content)) {
+            $line++;
+            if($l =~ /[ \t]$/) {
+                push @err, "line $line: trailing whitespace";
+            }
+        }
     }
 
     if($content ne "" &&
@@ -143,6 +143,11 @@ while(my $filename = <$git_ls_files>) {
     if($content =~ /\n\n\z/ ||
         $content =~ /\r\n\r\n\z/) {
         push @err, "content: has multiple EOL at EOF";
+    }
+
+    if($content =~ /\n\n\n\n/ ||
+        $content =~ /\r\n\r\n\r\n\r\n/) {
+        push @err, "content: has 3 or more consecutive empty lines";
     }
 
     if($content =~ /([\x00-\x08\x0b\x0c\x0e-\x1f\x7f])/) {
@@ -161,7 +166,13 @@ while(my $filename = <$git_ls_files>) {
         for my $e (split(//, $non)) {
             $hex .= sprintf("%s%02x", $hex ? " ": "", ord($e));
         }
-        push @err, "content: has non-ASCII: '$non' ($hex)";
+        my $line;
+        for my $l (split(/\n/, $content)) {
+            $line++;
+            if($l =~ /([\x80-\xff]+)/) {
+                push @err, "line $line: has non-ASCII: '$non' ($hex)";
+            }
+        }
     }
 
     if(@err) {

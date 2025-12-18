@@ -34,11 +34,9 @@ case "${TARGET:-}" in
 esac
 
 if [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2022' ]; then
-  openssl_root_win="C:/OpenSSL-v34${openssl_suffix}"
+  openssl_root_win="C:/OpenSSL-v35${openssl_suffix}"
 elif [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2019' ]; then
-  openssl_root_win="C:/OpenSSL-v11${openssl_suffix}"
-elif [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2013' ]; then
-  openssl_root_win="C:/OpenSSL${openssl_suffix}"
+  openssl_root_win="C:/OpenSSL-v30${openssl_suffix}"
 else
   openssl_root_win="C:/OpenSSL-v111${openssl_suffix}"
 fi
@@ -68,7 +66,6 @@ if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
     fi
     # shellcheck disable=SC2086
     time cmake -G "${PRJ_GEN}" ${TARGET} \
-      -DCURL_TEST_BUNDLES=ON \
       -DCURL_WERROR=ON \
       -DBUILD_SHARED_LIBS="${SHARED}" \
       -DCURL_STATIC_CRT=ON \
@@ -88,13 +85,7 @@ if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
   fi
   echo 'curl_config.h'; grep -F '#define' _bld/lib/curl_config.h | sort || true
   # shellcheck disable=SC2086
-  if ! time cmake --build _bld --config "${PRJ_CFG}" --parallel 2 -- ${BUILD_OPT:-}; then
-    if [ "${PRJ_GEN}" = 'Visual Studio 9 2008' ]; then
-      find . -name BuildLog.htm -exec dos2unix '{}' +
-      find . -name BuildLog.htm -exec cat '{}' +
-    fi
-    false
-  fi
+  time cmake --build _bld --config "${PRJ_CFG}" --parallel 2 -- ${BUILD_OPT:-}
   [ "${SHARED}" = 'ON' ] && PATH="$PWD/_bld/lib/${PRJ_CFG}:$PATH"
   [ "${OPENSSL}" = 'ON' ] && { PATH="${openssl_root}:$PATH"; cp "${openssl_root}"/*.dll "_bld/src/${PRJ_CFG}"; }
   curl="_bld/src/${PRJ_CFG}/curl.exe"
@@ -105,29 +96,6 @@ elif [ "${BUILD_SYSTEM}" = 'VisualStudioSolution' ]; then
     msbuild.exe -maxcpucount "-property:Configuration=${PRJ_CFG}" "Windows/${VC_VERSION}/curl-all.sln"
   )
   curl="build/Win32/${VC_VERSION}/${PRJ_CFG}/curld.exe"
-elif [ "${BUILD_SYSTEM}" = 'winbuild_vs2015' ]; then
-  (
-    cd winbuild
-    cat << EOF > _make.bat
-      call "C:/Program Files/Microsoft SDKs/Windows/v7.1/Bin/SetEnv.cmd" /x64
-      call "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/vcvarsall.bat" x86_amd64
-      nmake -f Makefile.vc mode=dll VC=14 "SSL_PATH=${openssl_root_win}" WITH_SSL=dll MACHINE=x64 DEBUG=${DEBUG} ENABLE_UNICODE=${ENABLE_UNICODE} WINBUILD_ACKNOWLEDGE_DEPRECATED=yes
-EOF
-    ./_make.bat
-    rm _make.bat
-  )
-  curl="builds/libcurl-vc14-x64-${PATHPART}-dll-ssl-dll-ipv6-sspi/bin/curl.exe"
-elif [ "${BUILD_SYSTEM}" = 'winbuild_vs2017' ]; then
-  (
-    cd winbuild
-    cat << EOF > _make.bat
-      call "C:/Program Files (x86)/Microsoft Visual Studio/2017/Community/VC/Auxiliary/Build/vcvars64.bat"
-      nmake -f Makefile.vc mode=dll VC=14.10 "SSL_PATH=${openssl_root_win}" WITH_SSL=dll MACHINE=x64 DEBUG=${DEBUG} ENABLE_UNICODE=${ENABLE_UNICODE} WINBUILD_ACKNOWLEDGE_DEPRECATED=yes
-EOF
-    ./_make.bat
-    rm _make.bat
-  )
-  curl="builds/libcurl-vc14.10-x64-${PATHPART}-dll-ssl-dll-ipv6-sspi/bin/curl.exe"
 fi
 
 find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -exec file '{}' \;
@@ -148,7 +116,6 @@ fi
 
 if [ "${TFLAGS}" != 'skipall' ] && \
    [ "${TFLAGS}" != 'skiprun' ]; then
-  export CURL_DIRSUFFIX="${PRJ_CFG}"
   if [ -x "$(cygpath "${SYSTEMROOT}/System32/curl.exe")" ]; then
     TFLAGS+=" -ac $(cygpath "${SYSTEMROOT}/System32/curl.exe")"
   elif [ -x "$(cygpath 'C:/msys64/usr/bin/curl.exe')" ]; then
@@ -170,5 +137,12 @@ fi
 
 if [ "${EXAMPLES}" = 'ON' ] && \
    [ "${BUILD_SYSTEM}" = 'CMake' ]; then
-  time cmake --build _bld --config "${PRJ_CFG}" --parallel 2 --target curl-examples
+  time cmake --build _bld --config "${PRJ_CFG}" --parallel 2 --target curl-examples-build
+fi
+
+# disk space used
+
+du -sh .; echo; du -sh -t 250KB ./*
+if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
+  echo; du -h -t 250KB _bld
 fi

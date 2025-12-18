@@ -23,8 +23,6 @@
  ***************************************************************************/
 #include "tool_setup.h"
 
-#include <curlx.h>
-
 #include "tool_cfgable.h"
 #include "tool_getparam.h"
 #include "tool_getpass.h"
@@ -34,7 +32,7 @@
 #include "tool_util.h"
 #include "tool_version.h"
 
-#include <memdebug.h> /* keep this as LAST include */
+#include "memdebug.h" /* keep this as LAST include */
 
 struct getout *new_getout(struct OperationConfig *config)
 {
@@ -121,19 +119,6 @@ ParameterError file2string(char **bufp, FILE *file)
   return PARAM_OK;
 }
 
-static int myfseek(void *stream, curl_off_t offset, int whence)
-{
-#if defined(_WIN32) && defined(USE_WIN32_LARGE_FILES)
-  return _fseeki64(stream, (__int64)offset, whence);
-#elif defined(HAVE_FSEEKO) && defined(HAVE_DECL_FSEEKO)
-  return fseeko(stream, (off_t)offset, whence);
-#else
-  if(offset > LONG_MAX)
-    return -1;
-  return fseek(stream, (long)offset, whence);
-#endif
-}
-
 ParameterError file2memory_range(char **bufp, size_t *size, FILE *file,
                                  curl_off_t starto, curl_off_t endo)
 {
@@ -145,7 +130,7 @@ ParameterError file2memory_range(char **bufp, size_t *size, FILE *file,
 
     if(starto) {
       if(file != stdin) {
-        if(myfseek(file, starto, SEEK_SET))
+        if(curlx_fseek(file, starto, SEEK_SET))
           return PARAM_READ_ERROR;
         offset = starto;
       }
@@ -323,7 +308,7 @@ ParameterError secs2ms(long *valp, const char *str)
 {
   curl_off_t secs;
   long ms = 0;
-  const unsigned int digs[] = { 1, 10, 100, 1000, 10000, 1000000,
+  const unsigned int digs[] = { 1, 10, 100, 1000, 10000, 100000,
     1000000, 10000000, 100000000 };
   if(!str ||
      curlx_str_number(&str, &secs, LONG_MAX/1000 - 1))
@@ -336,7 +321,7 @@ ParameterError secs2ms(long *valp, const char *str)
       return PARAM_NUMBER_TOO_LARGE;
     /* how many milliseconds are in fracs ? */
     len = (str - s);
-    while((len > sizeof(CURL_ARRAYSIZE(digs)) || (fracs > LONG_MAX/100))) {
+    while((len > CURL_ARRAYSIZE(digs) || (fracs > LONG_MAX/100))) {
       fracs /= 10;
       len--;
     }
@@ -407,8 +392,7 @@ static void protoset_clear(const char **protoset, const char *proto)
 
 #define MAX_PROTOSTRING (64*11) /* Enough room for 64 10-chars proto names. */
 
-ParameterError proto2num(struct OperationConfig *config,
-                         const char * const *val, char **ostr, const char *str)
+ParameterError proto2num(const char * const *val, char **ostr, const char *str)
 {
   const char **protoset;
   struct dynbuf obuf;
@@ -478,7 +462,7 @@ ParameterError proto2num(struct OperationConfig *config,
     else {
       char buffer[32];
       const char *p;
-      msnprintf(buffer, sizeof(buffer), "%.*s", (int)plen, str);
+      curl_msnprintf(buffer, sizeof(buffer), "%.*s", (int)plen, str);
 
       p = proto_token(buffer);
 
@@ -499,7 +483,7 @@ ParameterError proto2num(struct OperationConfig *config,
            if no protocols are allowed */
         if(action == set)
           protoset[0] = NULL;
-        warnf(config->global, "unrecognized protocol '%s'", buffer);
+        warnf("unrecognized protocol '%s'", buffer);
       }
     }
     if(next)
@@ -587,13 +571,13 @@ static CURLcode checkpasswd(const char *kind, /* for what purpose */
 
     /* build a nice-looking prompt */
     if(!i && last)
-      msnprintf(prompt, sizeof(prompt),
-                "Enter %s password for user '%s':",
-                kind, *userpwd);
+      curl_msnprintf(prompt, sizeof(prompt),
+                     "Enter %s password for user '%s':",
+                     kind, *userpwd);
     else
-      msnprintf(prompt, sizeof(prompt),
-                "Enter %s password for user '%s' on URL #%zu:",
-                kind, *userpwd, i + 1);
+      curl_msnprintf(prompt, sizeof(prompt),
+                     "Enter %s password for user '%s' on URL #%zu:",
+                     kind, *userpwd, i + 1);
 
     /* get password */
     getpass_r(prompt, passwd, sizeof(passwd));
@@ -622,7 +606,7 @@ ParameterError add2list(struct curl_slist **list, const char *ptr)
   return PARAM_OK;
 }
 
-int ftpfilemethod(struct OperationConfig *config, const char *str)
+long ftpfilemethod(const char *str)
 {
   if(curl_strequal("singlecwd", str))
     return CURLFTPMETHOD_SINGLECWD;
@@ -631,26 +615,24 @@ int ftpfilemethod(struct OperationConfig *config, const char *str)
   if(curl_strequal("multicwd", str))
     return CURLFTPMETHOD_MULTICWD;
 
-  warnf(config->global, "unrecognized ftp file method '%s', using default",
-        str);
+  warnf("unrecognized ftp file method '%s', using default", str);
 
   return CURLFTPMETHOD_MULTICWD;
 }
 
-int ftpcccmethod(struct OperationConfig *config, const char *str)
+long ftpcccmethod(const char *str)
 {
   if(curl_strequal("passive", str))
     return CURLFTPSSL_CCC_PASSIVE;
   if(curl_strequal("active", str))
     return CURLFTPSSL_CCC_ACTIVE;
 
-  warnf(config->global, "unrecognized ftp CCC method '%s', using default",
-        str);
+  warnf("unrecognized ftp CCC method '%s', using default", str);
 
   return CURLFTPSSL_CCC_PASSIVE;
 }
 
-long delegation(struct OperationConfig *config, const char *str)
+long delegation(const char *str)
 {
   if(curl_strequal("none", str))
     return CURLGSSAPI_DELEGATION_NONE;
@@ -659,8 +641,7 @@ long delegation(struct OperationConfig *config, const char *str)
   if(curl_strequal("always", str))
     return CURLGSSAPI_DELEGATION_FLAG;
 
-  warnf(config->global, "unrecognized delegation method '%s', using none",
-        str);
+  warnf("unrecognized delegation method '%s', using none", str);
 
   return CURLGSSAPI_DELEGATION_NONE;
 }
@@ -712,25 +693,19 @@ CURLcode get_args(struct OperationConfig *config, const size_t i)
       return CURLE_OUT_OF_MEMORY;
   }
 
-  /* Check we have a password for the given host user */
-  if(config->userpwd && !config->oauth_bearer) {
+  /* Check if we have a password for the given host user */
+  if(config->userpwd && !config->oauth_bearer)
     result = checkpasswd("host", i, last, &config->userpwd);
-    if(result)
-      return result;
-  }
 
-  /* Check we have a password for the given proxy user */
-  if(config->proxyuserpwd) {
+  /* Check if we have a password for the given proxy user */
+  if(!result && config->proxyuserpwd)
     result = checkpasswd("proxy", i, last, &config->proxyuserpwd);
-    if(result)
-      return result;
-  }
 
-  /* Check we have a user agent */
-  if(!config->useragent) {
+  /* Check if we have a user agent */
+  if(!result && !config->useragent) {
     config->useragent = my_useragent();
     if(!config->useragent) {
-      errorf(config->global, "out of memory");
+      errorf("out of memory");
       result = CURLE_OUT_OF_MEMORY;
     }
   }
@@ -740,24 +715,24 @@ CURLcode get_args(struct OperationConfig *config, const size_t i)
 
 /*
  * Parse the string and modify ssl_version in the val argument. Return PARAM_OK
- * on success, otherwise a parameter error enum. ONLY ACCEPTS POSITIVE NUMBERS!
+ * on success, otherwise a parameter error enum.
  *
  * Since this function gets called with the 'nextarg' pointer from within the
  * getparameter a lot, we must check it for NULL before accessing the str
  * data.
  */
 
-ParameterError str2tls_max(long *val, const char *str)
+ParameterError str2tls_max(unsigned char *val, const char *str)
 {
-   static struct s_tls_max {
+  static struct s_tls_max {
     const char *tls_max_str;
-    long tls_max;
+    unsigned char tls_max;
   } const tls_max_array[] = {
-    { "default", CURL_SSLVERSION_MAX_DEFAULT },
-    { "1.0",     CURL_SSLVERSION_MAX_TLSv1_0 },
-    { "1.1",     CURL_SSLVERSION_MAX_TLSv1_1 },
-    { "1.2",     CURL_SSLVERSION_MAX_TLSv1_2 },
-    { "1.3",     CURL_SSLVERSION_MAX_TLSv1_3 }
+    { "default", 0 }, /* lets the library decide */
+    { "1.0",     1 },
+    { "1.1",     2 },
+    { "1.2",     3 },
+    { "1.3",     4 }
   };
   size_t i = 0;
   if(!str)

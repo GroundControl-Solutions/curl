@@ -21,25 +21,23 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
-#include "warnless.h"
 #include "memdebug.h"
 
 /*
  * Get a single URL without select().
  */
 
-CURLcode test(char *URL)
+static CURLcode test_lib658(const char *URL)
 {
-  CURL *handle = NULL;
+  CURL *curl = NULL;
   CURLcode res = CURLE_OK;
   CURLU *urlp = NULL;
   CURLUcode uc = CURLUE_OK;
 
   global_init(CURL_GLOBAL_ALL);
-  easy_init(handle);
+  easy_init(curl);
 
   urlp = curl_url();
 
@@ -51,17 +49,17 @@ CURLcode test(char *URL)
   uc = curl_url_set(urlp, CURLUPART_URL, URL, 0);
   if(uc) {
     curl_mfprintf(stderr, "problem setting CURLUPART_URL: %s.",
-            curl_url_strerror(uc));
+                  curl_url_strerror(uc));
     goto test_cleanup;
   }
 
   /* demonstrate override behavior */
-  easy_setopt(handle, CURLOPT_URL, "http://www.example.com");
+  easy_setopt(curl, CURLOPT_URL, "http://www.example.com");
 
-  easy_setopt(handle, CURLOPT_CURLU, urlp);
-  easy_setopt(handle, CURLOPT_VERBOSE, 1L);
+  easy_setopt(curl, CURLOPT_CURLU, urlp);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-  res = curl_easy_perform(handle);
+  res = curl_easy_perform(curl);
 
   if(res) {
     curl_mfprintf(stderr, "%s:%d curl_easy_perform() failed "
@@ -73,7 +71,7 @@ CURLcode test(char *URL)
 test_cleanup:
 
   curl_url_cleanup(urlp);
-  curl_easy_cleanup(handle);
+  curl_easy_cleanup(curl);
   curl_global_cleanup();
 
   return res;

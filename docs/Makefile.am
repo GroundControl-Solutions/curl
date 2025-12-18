@@ -42,7 +42,6 @@ CLEANFILES = $(MK_CA_DOCS) $(man_MANS) $(TEST_DOCS)
 endif
 
 TESTDOCS =                                      \
- tests/CI.md                                    \
  tests/FILEFORMAT.md                            \
  tests/HTTP.md                                  \
  tests/TEST-SUITE.md
@@ -65,6 +64,7 @@ INTERNALDOCS =                                  \
  internals/NEW-PROTOCOL.md                      \
  internals/PORTING.md                           \
  internals/README.md                            \
+ internals/SCORECARD.md                         \
  internals/SPLAY.md                             \
  internals/STRPARSE.md                          \
  internals/TLS-SESSIONS.md                      \

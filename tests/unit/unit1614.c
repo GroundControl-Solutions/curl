@@ -21,38 +21,24 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "curlcheck.h"
+#include "unitcheck.h"
 
 #include "noproxy.h"
 
-static CURLcode unit_setup(void)
+static CURLcode test_unit1614(const char *arg)
 {
-  return CURLE_OK;
-}
+  UNITTEST_BEGIN_SIMPLE
 
-static void unit_stop(void)
-{
-
-}
-
-struct check {
-  const char *a;
-  const char *n;
-  unsigned int bits;
-  bool match;
-};
-
-struct noproxy {
-  const char *a;
-  const char *n;
-  bool match;
-};
-
-UNITTEST_START
 #if defined(DEBUGBUILD) && !defined(CURL_DISABLE_PROXY)
-{
   int i;
   int err = 0;
+
+  struct check {
+  const char *a;
+    const char *n;
+    unsigned int bits;
+    bool match;
+  };
   struct check list4[]= {
     { "192.160.0.1", "192.160.0.1", 33, FALSE},
     { "192.160.0.1", "192.160.0.1", 32, TRUE},
@@ -78,6 +64,11 @@ UNITTEST_START
     { NULL, NULL, 0, FALSE} /* end marker */
   };
 #endif
+  struct noproxy {
+    const char *a;
+    const char *n;
+    bool match;
+  };
   struct noproxy list[]= {
     { "www.example.com", "localhost .example.com .example.de", FALSE},
     { "www.example.com", "localhost,.example.com,.example.de", TRUE},
@@ -120,6 +111,28 @@ UNITTEST_START
     { "[::1]", "foo, bar, ::1/64", TRUE},
     { "[::1]", "::1/64", TRUE},
     { "[::1]", "::1/96", TRUE},
+    { "[::1]", "::1/127", TRUE},
+    { "[::1]", "::1/126", TRUE},
+    { "[::1]", "::1/125", TRUE},
+    { "[::1]", "::1/124", TRUE},
+    { "[::1]", "::1/123", TRUE},
+    { "[::1]", "::1/122", TRUE},
+    { "[2001:db8:8000::1]", "2001:db8::/65", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/66", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/67", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/68", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/69", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/70", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/71", FALSE},
+    { "[2001:db8:8000::1]", "2001:db8::/72", FALSE},
+    { "[2001:db8::1]", "2001:db8::/65", TRUE},
+    { "[2001:db8::1]", "2001:db8::/66", TRUE},
+    { "[2001:db8::1]", "2001:db8::/67", TRUE},
+    { "[2001:db8::1]", "2001:db8::/68", TRUE},
+    { "[2001:db8::1]", "2001:db8::/69", TRUE},
+    { "[2001:db8::1]", "2001:db8::/70", TRUE},
+    { "[2001:db8::1]", "2001:db8::/71", TRUE},
+    { "[2001:db8::1]", "2001:db8::/72", TRUE},
     { "[::1]", "::1/129", FALSE},
     { "bar", "foo, bar, ::1/64", TRUE},
     { "BAr", "foo, bar, ::1/64", TRUE},
@@ -161,6 +174,7 @@ UNITTEST_START
     }
   }
   fail_if(err, "errors");
-}
 #endif
-UNITTEST_STOP
+
+  UNITTEST_END_SIMPLE
+}

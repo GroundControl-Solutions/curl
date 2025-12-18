@@ -21,9 +21,8 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#include "testutil.h"
 #include "memdebug.h"
 
 struct chunk_data {
@@ -31,8 +30,7 @@ struct chunk_data {
   int print_content;
 };
 
-static
-long chunk_bgn(const void *f, void *ptr, int remains)
+static long chunk_bgn(const void *f, void *ptr, int remains)
 {
   const struct curl_fileinfo *finfo = f;
   struct chunk_data *ch_d = ptr;
@@ -48,7 +46,7 @@ long chunk_bgn(const void *f, void *ptr, int remains)
       curl_mprintf(" (parsed => %o)", finfo->perm);
     curl_mprintf("\n");
   }
-  curl_mprintf("Size:         %ldB\n", (long)finfo->size);
+  curl_mprintf("Size:         %" CURL_FORMAT_CURL_OFF_T "B\n", finfo->size);
   if(finfo->strings.user)
     curl_mprintf("User:         %s\n", finfo->strings.user);
   if(finfo->strings.group)
@@ -74,7 +72,8 @@ long chunk_bgn(const void *f, void *ptr, int remains)
   if(finfo->filetype == CURLFILETYPE_FILE) {
     ch_d->print_content = 1;
     curl_mprintf("Content:\n"
-      "-------------------------------------------------------------\n");
+                 "-------------------------------------------"
+                 "------------------\n");
   }
   if(strcmp(finfo->filename, "someothertext.txt") == 0) {
     curl_mprintf("# THIS CONTENT WAS SKIPPED IN CHUNK_BGN CALLBACK #\n");
@@ -83,8 +82,7 @@ long chunk_bgn(const void *f, void *ptr, int remains)
   return CURL_CHUNK_BGN_FUNC_OK;
 }
 
-static
-long chunk_end(void *ptr)
+static long chunk_end(void *ptr)
 {
   struct chunk_data *ch_d = ptr;
   if(ch_d->print_content) {
@@ -98,29 +96,29 @@ long chunk_end(void *ptr)
   return CURL_CHUNK_END_FUNC_OK;
 }
 
-CURLcode test(char *URL)
+static CURLcode test_lib576(const char *URL)
 {
-  CURL *handle = NULL;
+  CURL *curl = NULL;
   CURLcode res = CURLE_OK;
   struct chunk_data chunk_data = {0, 0};
   curl_global_init(CURL_GLOBAL_ALL);
-  handle = curl_easy_init();
-  if(!handle) {
+  curl = curl_easy_init();
+  if(!curl) {
     res = CURLE_OUT_OF_MEMORY;
     goto test_cleanup;
   }
 
-  test_setopt(handle, CURLOPT_URL, URL);
-  test_setopt(handle, CURLOPT_WILDCARDMATCH, 1L);
-  test_setopt(handle, CURLOPT_CHUNK_BGN_FUNCTION, chunk_bgn);
-  test_setopt(handle, CURLOPT_CHUNK_END_FUNCTION, chunk_end);
-  test_setopt(handle, CURLOPT_CHUNK_DATA, &chunk_data);
+  test_setopt(curl, CURLOPT_URL, URL);
+  test_setopt(curl, CURLOPT_WILDCARDMATCH, 1L);
+  test_setopt(curl, CURLOPT_CHUNK_BGN_FUNCTION, chunk_bgn);
+  test_setopt(curl, CURLOPT_CHUNK_END_FUNCTION, chunk_end);
+  test_setopt(curl, CURLOPT_CHUNK_DATA, &chunk_data);
 
-  res = curl_easy_perform(handle);
+  res = curl_easy_perform(curl);
 
 test_cleanup:
-  if(handle)
-    curl_easy_cleanup(handle);
+  if(curl)
+    curl_easy_cleanup(curl);
   curl_global_cleanup();
   return res;
 }

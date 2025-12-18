@@ -21,19 +21,15 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
-#include "memdebug.h"
+#include "first.h"
 
-/* build request url */
-static char *suburl(const char *base, int i)
-{
-  return curl_maprintf("%s%.4d", base, i);
-}
+#include "testutil.h"
+#include "memdebug.h"
 
 /*
  * Test Session ID capture
  */
-CURLcode test(char *URL)
+static CURLcode test_lib569(const char *URL)
 {
   CURLcode res;
   CURL *curl;
@@ -42,7 +38,7 @@ CURLcode test(char *URL)
   int request = 1;
   int i;
 
-  FILE *idfile = fopen(libtest_arg2, "wb");
+  FILE *idfile = curlx_fopen(libtest_arg2, "wb");
   if(!idfile) {
     curl_mfprintf(stderr, "couldn't open the Session ID File\n");
     return TEST_ERR_MAJOR_BAD;
@@ -50,7 +46,7 @@ CURLcode test(char *URL)
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
     curl_mfprintf(stderr, "curl_global_init() failed\n");
-    fclose(idfile);
+    curlx_fclose(idfile);
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -58,7 +54,7 @@ CURLcode test(char *URL)
   if(!curl) {
     curl_mfprintf(stderr, "curl_easy_init() failed\n");
     curl_global_cleanup();
-    fclose(idfile);
+    curlx_fclose(idfile);
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -70,16 +66,16 @@ CURLcode test(char *URL)
 
   test_setopt(curl, CURLOPT_RTSP_REQUEST, CURL_RTSPREQ_SETUP);
   res = curl_easy_perform(curl);
-  if(res != (int)CURLE_BAD_FUNCTION_ARGUMENT) {
+  if(res != CURLE_BAD_FUNCTION_ARGUMENT) {
     curl_mfprintf(stderr, "This should have failed. "
-            "Cannot setup without a Transport: header");
+                  "Cannot setup without a Transport: header");
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
   }
 
   /* Go through the various Session IDs */
   for(i = 0; i < 3; i++) {
-    stream_uri = suburl(URL, request++);
+    stream_uri = tutil_suburl(URL, request++);
     if(!stream_uri) {
       res = TEST_ERR_MAJOR_BAD;
       goto test_cleanup;
@@ -99,7 +95,7 @@ CURLcode test(char *URL)
     curl_mfprintf(idfile, "Got Session ID: [%s]\n", rtsp_session_id);
     rtsp_session_id = NULL;
 
-    stream_uri = suburl(URL, request++);
+    stream_uri = tutil_suburl(URL, request++);
     if(!stream_uri) {
       res = TEST_ERR_MAJOR_BAD;
       goto test_cleanup;
@@ -120,7 +116,7 @@ CURLcode test(char *URL)
 test_cleanup:
 
   if(idfile)
-    fclose(idfile);
+    curlx_fclose(idfile);
 
   curl_free(stream_uri);
   curl_easy_cleanup(curl);
