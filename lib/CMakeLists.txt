@@ -182,7 +182,9 @@ if(BUILD_SHARED_LIBS)
   add_library(${PROJECT_NAME}::${LIB_SHARED} ALIAS ${LIB_SHARED})
   if(WIN32)
     set_property(TARGET ${LIB_SHARED} APPEND PROPERTY SOURCES "dllmain.c")
-    set_property(TARGET ${LIB_SHARED} APPEND PROPERTY SOURCES ${LIB_RCFILES})
+    # GC: Do not embed upstream curl VERSIONINFO into the DLL
+    # LP parent project owns versioning.
+    # set_property(TARGET ${LIB_SHARED} APPEND PROPERTY SOURCES ${LIB_RCFILES})
     if(CURL_HIDES_PRIVATE_SYMBOLS)
       set_property(TARGET ${LIB_SHARED} APPEND PROPERTY SOURCES "${PROJECT_SOURCE_DIR}/lib/libcurl.def")
     endif()
