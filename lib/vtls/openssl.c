@@ -5203,8 +5203,17 @@ CURLcode Curl_ossl_check_peer_cert(struct Curl_cfilter *cf,
 
 #ifdef USE_APPLE_SECTRUST
   if(!verified &&
-     conn_config->verifypeer && ssl_config->native_ca_store &&
-     (ossl_verify == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY)) {
+  	// ORIGINAL:
+     //conn_config->verifypeer && ssl_config->native_ca_store &&
+     //(ossl_verify == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY))
+
+     /// GC CHANGES:
+		conn_config->verifypeer &&
+		ssl_config->native_ca_store &&
+		(ossl_verify == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY ||
+		ossl_verify == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN ||
+		ossl_verify == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT))
+  	{
     /* we verify using Apple SecTrust *unless* OpenSSL already verified.
      * This may happen if the application intercepted the OpenSSL callback
      * and installed its own. */
