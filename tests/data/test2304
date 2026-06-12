@@ -26,11 +26,14 @@ upgrade
 #
 # Client-side
 <client>
-# require debug for the forced CURL_ENTROPY
+# require Debug for the forced CURL_ENTROPY
 <features>
 Debug
 ws
 </features>
+<setenv>
+CURL_ENTROPY=12345678
+</setenv>
 <server>
 http
 </server>
@@ -49,15 +52,15 @@ ws://%HOSTIP:%HTTPPORT/%TESTNUMBER
 # PONG with no data and the 32 bit mask
 #
 <verify>
-<protocol nocheck="yes" crlf="yes">
+<protocol crlf="headers" nocheck="yes">
 GET /%TESTNUMBER HTTP/1.1
 Host: %HOSTIP:%HTTPPORT
 User-Agent: websocket/%TESTNUMBER
 Accept: */*
 Upgrade: websocket
-Connection: Upgrade
 Sec-WebSocket-Version: 13
 Sec-WebSocket-Key: NDMyMTUzMjE2MzIxNzMyMQ==
+Connection: Upgrade
 
 </protocol>
 

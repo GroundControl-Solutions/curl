@@ -28,9 +28,7 @@ appleOS:
           - any-glob-to-all-files: "{\
               .github/workflows/macos.yml,\
               lib/config-mac.h,\
-              lib/macos*,\
-              lib/vtls/sectransp*,\
-              m4/curl-sectransp.m4\
+              lib/macos*\
               }"
 
 authentication:
@@ -77,7 +75,6 @@ build:
               packages/**,\
               plan9/**,\
               projects/**,\
-              winbuild/**,\
               lib/libcurl.def,\
               tests/cmake/**\
               }"
@@ -165,9 +162,9 @@ cryptography:
               docs/libcurl/opts/CURLOPT_EGDSOCKET*,\
               lib/*sha256*,\
               lib/*sha512*,\
-              lib/curl_des.*,\
               lib/curl_hmac.*,\
               lib/curl_md?.*,\
+              lib/curl_ntlm_core.*,\
               lib/md?.*,\
               lib/rand.*\
               }"
@@ -284,7 +281,6 @@ HTTP/3:
               .github/workflows/ngtcp2*,\
               .github/workflows/quiche*,\
               .github/workflows/osslq*,\
-              CMake/FindMSH3.cmake,\
               CMake/FindNGHTTP3.cmake,\
               CMake/FindNGTCP2.cmake,\
               docs/HTTP3.md,\
@@ -455,7 +451,7 @@ TLS:
   - all:
       - changed-files:
           - any-glob-to-all-files: "{\
-              CMake/FindBearSSL.cmake,\
+              CMake/FindGnuTLS.cmake,\
               CMake/FindMbedTLS.cmake,\
               CMake/FindWolfSSL.cmake,\
               CMake/FindRustls.cmake,\
@@ -475,13 +471,11 @@ TLS:
               docs/libcurl/opts/CURLOPT_TLS*,\
               docs/libcurl/opts/CURLOPT_USE_SSL*,\
               lib/vtls/**,\
-              m4/curl-bearssl.m4,\
               m4/curl-gnutls.m4,\
               m4/curl-mbedtls.m4,\
               m4/curl-openssl.m4,\
               m4/curl-rustls.m4,\
               m4/curl-schannel.m4,\
-              m4/curl-sectransp.m4,\
               m4/curl-wolfssl.m4\
               }"
 
@@ -526,6 +520,5 @@ Windows:
               m4/curl-schannel.m4,\
               projects/**,\
               src/tool_doswin.c,\
-              winbuild/**,\
               lib/libcurl.def\
               }"

@@ -8,6 +8,7 @@ Help: Load/save SSL session tickets from/to this file
 Added: 8.12.0
 Category: tls
 Multi: single
+Experimental: yes
 See-also:
   - tls-earlydata
 Example:
@@ -33,3 +34,6 @@ The SSL session tickets are stored as base64 encoded text, each ticket on
 its own line. The hostnames are cryptographically salted and hashed. While
 this prevents someone from easily seeing the hosts you contacted, they could
 still check if a specific hostname matches one of the values.
+
+This feature requires that the underlying libcurl was built with the
+experimental SSL session import/export feature (SSLS-EXPORT) enabled.

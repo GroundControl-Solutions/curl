@@ -70,7 +70,7 @@ static const char *disabled[]={
   "ON"
 #endif
   ,
-  "digest-auth: "
+  "digest: "
 #ifdef CURL_DISABLE_DIGEST_AUTH
   "OFF"
 #else
@@ -236,18 +236,17 @@ static const char *disabled[]={
 #else
   "OFF"
 #endif
-  ,
-  NULL
 };
 
 int main(int argc, char **argv)
 {
-  int i;
+  size_t i;
 
-  (void) argc;
-  (void) argv;
+  (void)argc;
+  (void)argv;
 
-  for(i = 0; disabled[i]; i++)
+  for(i = 0; i < CURL_ARRAYSIZE(disabled); i++)
+    /* !checksrc! disable BANNEDFUNC 1 */
     printf("%s\n", disabled[i]);
 
   return 0;

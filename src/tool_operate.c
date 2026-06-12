@@ -23,10 +23,6 @@
  ***************************************************************************/
 #include "tool_setup.h"
 
-#ifdef HAVE_FCNTL_H
-#  include <fcntl.h>
-#endif
-
 #ifdef HAVE_LOCALE_H
 #  include <locale.h>
 #endif
@@ -54,9 +50,6 @@
 #include <uv.h>
 #endif
 
-#include <curlx.h>
-
-#include "tool_binmode.h"
 #include "tool_cfgable.h"
 #include "tool_cb_dbg.h"
 #include "tool_cb_hdr.h"
@@ -80,7 +73,6 @@
 #include "tool_paramhlp.h"
 #include "tool_parsecfg.h"
 #include "tool_setopt.h"
-#include "tool_sleep.h"
 #include "tool_ssls.h"
 #include "tool_urlglob.h"
 #include "tool_util.h"
@@ -98,7 +90,7 @@
 CURL_EXTERN CURLcode curl_easy_perform_ev(CURL *easy);
 #endif
 
-#include <memdebug.h> /* keep this as LAST include */
+#include "memdebug.h" /* keep this as LAST include */
 
 #ifdef CURL_CA_EMBED
 #ifndef CURL_DECLARED_CURL_CA_EMBED
@@ -114,13 +106,7 @@ extern const unsigned char curl_ca_embed[];
   "this situation and\nhow to fix it, please visit the webpage mentioned " \
   "above.\n"
 
-static CURLcode single_transfer(struct GlobalConfig *global,
-                                struct OperationConfig *config,
-                                CURLSH *share,
-                                bool *added,
-                                bool *skipped);
-static CURLcode create_transfer(struct GlobalConfig *global,
-                                CURLSH *share,
+static CURLcode create_transfer(CURLSH *share,
                                 bool *added,
                                 bool *skipped);
 
@@ -174,7 +160,7 @@ static curl_off_t vms_realfilesize(const char *name,
   FILE * file;
 
   /* !checksrc! disable FOPENMODE 1 */
-  file = fopen(name, "r"); /* VMS */
+  file = curlx_fopen(name, "r"); /* VMS */
   if(!file) {
     return 0;
   }
@@ -185,7 +171,7 @@ static curl_off_t vms_realfilesize(const char *name,
     if(ret_stat)
       count += ret_stat;
   }
-  fclose(file);
+  curlx_fclose(file);
 
   return count;
 }
@@ -212,7 +198,6 @@ static curl_off_t VmsSpecialSize(const char *name,
 
 struct per_transfer *transfers; /* first node */
 static struct per_transfer *transfersl; /* last node */
-static curl_off_t all_pers;
 
 /* add_per_transfer creates a new 'per_transfer' node in the linked
    list of transfers */
@@ -234,8 +219,6 @@ static CURLcode add_per_transfer(struct per_transfer **per)
     transfersl = p;
   }
   *per = p;
-  all_xfers++; /* count total number of transfers added */
-  all_pers++;
 
   return CURLE_OK;
 }
@@ -264,20 +247,15 @@ static struct per_transfer *del_per_transfer(struct per_transfer *per)
     transfersl = p;
 
   free(per);
-  all_pers--;
 
   return n;
 }
 
-static CURLcode pre_transfer(struct GlobalConfig *global,
-                             struct per_transfer *per)
+static CURLcode pre_transfer(struct per_transfer *per)
 {
   curl_off_t uploadfilesize = -1;
   struct_stat fileinfo;
   CURLcode result = CURLE_OK;
-#ifdef CURL_DISABLE_LIBCURL_OPTION
-  (void)global; /* otherwise used in the my_setopt macros */
-#endif
 
   if(per->uploadfile && !stdin_upload(per->uploadfile)) {
     /* VMS Note:
@@ -297,26 +275,26 @@ static CURLcode pre_transfer(struct GlobalConfig *global,
 #ifdef __VMS
     /* Calculate the real upload size for VMS */
     per->infd = -1;
-    if(stat(per->uploadfile, &fileinfo) == 0) {
+    if(curlx_stat(per->uploadfile, &fileinfo) == 0) {
       fileinfo.st_size = VmsSpecialSize(uploadfile, &fileinfo);
       switch(fileinfo.st_fab_rfm) {
       case FAB$C_VAR:
       case FAB$C_VFC:
       case FAB$C_STMCR:
-        per->infd = open(per->uploadfile, O_RDONLY | CURL_O_BINARY);
+        per->infd = curlx_open(per->uploadfile, O_RDONLY | CURL_O_BINARY);
         break;
       default:
-        per->infd = open(per->uploadfile, O_RDONLY | CURL_O_BINARY,
-                         "rfm=stmlf", "ctx=stm");
+        per->infd = curlx_open(per->uploadfile, O_RDONLY | CURL_O_BINARY,
+                               "rfm=stmlf", "ctx=stm");
       }
     }
     if(per->infd == -1)
 #else
-      per->infd = open(per->uploadfile, O_RDONLY | CURL_O_BINARY);
+      per->infd = curlx_open(per->uploadfile, O_RDONLY | CURL_O_BINARY);
     if((per->infd == -1) || fstat(per->infd, &fileinfo))
 #endif
     {
-      helpf(tool_stderr, "cannot open '%s'", per->uploadfile);
+      helpf("cannot open '%s'", per->uploadfile);
       if(per->infd != -1) {
         close(per->infd);
         per->infd = STDIN_FILENO;
@@ -348,17 +326,40 @@ static CURLcode pre_transfer(struct GlobalConfig *global,
   return result;
 }
 
-void single_transfer_cleanup(struct OperationConfig *config)
+void single_transfer_cleanup(void)
 {
-  if(config) {
-    struct State *state = &config->state;
-    /* Free list of remaining URLs */
-    glob_cleanup(&state->urls);
-    tool_safefree(state->outfiles);
-    tool_safefree(state->uploadfile);
-    /* Free list of globbed upload files */
-    glob_cleanup(&state->inglob);
-  }
+  struct State *state = &global->state;
+  /* Free list of remaining URLs */
+  glob_cleanup(&state->urlglob);
+  tool_safefree(state->uploadfile);
+  /* Free list of globbed upload files */
+  glob_cleanup(&state->inglob);
+}
+
+/* Helper function for retrycheck.
+ *
+ * This function is a prerequisite check used to determine whether or not some
+ * already downloaded data (ie out->bytes written) can be safely resumed in a
+ * subsequent transfer. The conditions are somewhat pedantic to avoid any risk
+ * of data corruption.
+ *
+ * Specific HTTP limitations (scheme, method, response code, etc) are checked
+ * in retrycheck if this prerequisite check is met.
+ */
+static bool is_outfile_auto_resumable(struct OperationConfig *config,
+                                      struct per_transfer *per,
+                                      CURLcode result)
+{
+  struct OutStruct *outs = &per->outs;
+  return config->use_resume && config->resume_from_current &&
+         config->resume_from >= 0 && outs->init == config->resume_from &&
+         outs->bytes > 0 && outs->filename && outs->s_isreg && outs->fopened &&
+         outs->stream && !ferror(outs->stream) &&
+         !config->customrequest && !per->uploadfile &&
+         (config->httpreq == TOOL_HTTPREQ_UNSPEC ||
+          config->httpreq == TOOL_HTTPREQ_GET) &&
+         /* CURLE_WRITE_ERROR could mean outs->bytes is not accurate */
+         result != CURLE_WRITE_ERROR && result != CURLE_RANGE_ERROR;
 }
 
 static CURLcode retrycheck(struct OperationConfig *config,
@@ -378,7 +379,6 @@ static CURLcode retrycheck(struct OperationConfig *config,
     RETRY_FTP,
     RETRY_LAST /* not used */
   } retry = RETRY_NO;
-  long response = 0;
   if((CURLE_OPERATION_TIMEDOUT == result) ||
      (CURLE_COULDNT_RESOLVE_HOST == result) ||
      (CURLE_COULDNT_RESOLVE_PROXY == result) ||
@@ -393,8 +393,7 @@ static CURLcode retrycheck(struct OperationConfig *config,
       retry = RETRY_CONNREFUSED;
   }
   else if((CURLE_OK == result) ||
-          ((config->failonerror || config->failwithbody) &&
-           (CURLE_HTTP_RETURNED_ERROR == result))) {
+          (config->fail && (CURLE_HTTP_RETURNED_ERROR == result))) {
     /* If it returned OK. _or_ failonerror was enabled and it
        returned due to such an error, check for HTTP transient
        errors to retry on. */
@@ -403,6 +402,7 @@ static CURLcode retrycheck(struct OperationConfig *config,
     scheme = proto_token(scheme);
     if(scheme == proto_http || scheme == proto_https) {
       /* This was HTTP(S) */
+      long response = 0;
       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response);
 
       switch(response) {
@@ -412,6 +412,8 @@ static CURLcode retrycheck(struct OperationConfig *config,
       case 502: /* Bad Gateway */
       case 503: /* Service Unavailable */
       case 504: /* Gateway Timeout */
+      case 522: /* Connection Timed Out (Cloudflare) */
+      case 524: /* Proxy Read Timeout (Cloudflare) */
         retry = RETRY_HTTP;
         /*
          * At this point, we have already written data to the output
@@ -429,6 +431,7 @@ static CURLcode retrycheck(struct OperationConfig *config,
   } /* if CURLE_OK */
   else if(result) {
     const char *scheme;
+    long response = 0;
 
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response);
     curl_easy_getinfo(curl, CURLINFO_SCHEME, &scheme);
@@ -457,8 +460,8 @@ static CURLcode retrycheck(struct OperationConfig *config,
       ": HTTP error",
       ": FTP error"
     };
+    bool truncate = TRUE; /* truncate output file */
 
-    sleeptime = per->retry_sleep;
     if(RETRY_HTTP == retry) {
       curl_easy_getinfo(curl, CURLINFO_RETRY_AFTER, &retry_after);
       if(retry_after) {
@@ -471,13 +474,12 @@ static CURLcode retrycheck(struct OperationConfig *config,
         /* if adding retry_after seconds to the process would exceed the
            maximum time allowed for retrying, then exit the retries right
            away */
-        if(config->retry_maxtime) {
-          curl_off_t seconds = curlx_timediff(curlx_now(),
-                                              per->retrystart)/1000;
+        if(config->retry_maxtime_ms) {
+          timediff_t ms = curlx_timediff(curlx_now(), per->retrystart);
 
-          if((CURL_OFF_T_MAX - retry_after < seconds) ||
-             (seconds + retry_after > config->retry_maxtime)) {
-            warnf(config->global, "The Retry-After: time would "
+          if((CURL_OFF_T_MAX - sleeptime < ms) ||
+             (ms + sleeptime > config->retry_maxtime_ms)) {
+            warnf("The Retry-After: time would "
                   "make this command line exceed the maximum allowed time "
                   "for retries.");
             *retryp = FALSE;
@@ -486,22 +488,72 @@ static CURLcode retrycheck(struct OperationConfig *config,
         }
       }
     }
-    warnf(config->global, "Problem %s. "
-          "Will retry in %ld second%s. "
+    if(!sleeptime && !config->retry_delay_ms) {
+      if(!per->retry_sleep)
+        per->retry_sleep = RETRY_SLEEP_DEFAULT;
+      else
+        per->retry_sleep *= 2;
+      if(per->retry_sleep > RETRY_SLEEP_MAX)
+        per->retry_sleep = RETRY_SLEEP_MAX;
+    }
+    if(!sleeptime)
+      sleeptime = per->retry_sleep;
+    warnf("Problem %s. "
+          "Will retry in %ld%s%.*ld second%s. "
           "%ld retr%s left.",
           m[retry], sleeptime/1000L,
-          (sleeptime/1000L == 1 ? "" : "s"),
+          (sleeptime%1000L ? "." : ""),
+          (sleeptime%1000L ? 3 : 0),
+          sleeptime%1000L,
+          (sleeptime == 1000L ? "" : "s"),
           per->retry_remaining,
           (per->retry_remaining > 1 ? "ies" : "y"));
 
     per->retry_remaining--;
-    if(!config->retry_delay) {
-      per->retry_sleep *= 2;
-      if(per->retry_sleep > RETRY_SLEEP_MAX)
-        per->retry_sleep = RETRY_SLEEP_MAX;
+
+    /* Skip truncation of outfile if auto-resume is enabled for download and
+       the partially received data is good. Only for HTTP GET requests in
+       limited circumstances. */
+    if(is_outfile_auto_resumable(config, per, result)) {
+      long response = 0;
+      struct curl_header *header = NULL;
+      const char *method = NULL, *scheme = NULL;
+
+      curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, &method);
+      curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response);
+      curl_easy_getinfo(curl, CURLINFO_SCHEME, &scheme);
+      scheme = proto_token(scheme);
+
+      if((scheme == proto_http || scheme == proto_https) &&
+         method && !strcmp(method, "GET") &&
+         ((response == 206 && config->resume_from) ||
+          (response == 200 &&
+           !curl_easy_header(curl, "Accept-Ranges", 0,
+                             CURLH_HEADER, -1, &header) &&
+           !strcmp(header->value, "bytes")))) {
+
+        notef("Keeping %" CURL_FORMAT_CURL_OFF_T " bytes", outs->bytes);
+        if(fflush(outs->stream)) {
+          errorf("Failed to flush output file stream");
+          return CURLE_WRITE_ERROR;
+        }
+        if(outs->bytes >= CURL_OFF_T_MAX - outs->init) {
+          errorf("Exceeded maximum supported file size ("
+                 "%" CURL_FORMAT_CURL_OFF_T " + "
+                 "%" CURL_FORMAT_CURL_OFF_T ")",
+                 outs->init, outs->bytes);
+          return CURLE_WRITE_ERROR;
+        }
+        truncate = FALSE;
+        outs->init += outs->bytes;
+        outs->bytes = 0;
+        config->resume_from = outs->init;
+        curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
+                         config->resume_from);
+      }
     }
 
-    if(outs->bytes && outs->filename && outs->stream) {
+    if(truncate && outs->bytes && outs->filename && outs->stream) {
 #ifndef __MINGW32CE__
       struct_stat fileinfo;
 
@@ -516,8 +568,7 @@ static CURLcode retrycheck(struct OperationConfig *config,
         int rc;
         /* We have written data to an output file, we truncate file */
         fflush(outs->stream);
-        notef(config->global,
-              "Throwing away %"  CURL_FORMAT_CURL_OFF_T " bytes",
+        notef("Throwing away %"  CURL_FORMAT_CURL_OFF_T " bytes",
               outs->bytes);
         /* truncate file at the position where we started appending */
 #if defined(HAVE_FTRUNCATE) && !defined(__DJGPP__) && !defined(__AMIGA__) && \
@@ -525,7 +576,7 @@ static CURLcode retrycheck(struct OperationConfig *config,
         if(ftruncate(fileno(outs->stream), outs->init)) {
           /* when truncate fails, we cannot just append as then we will
              create something strange, bail out */
-          errorf(config->global, "Failed to truncate file");
+          errorf("Failed to truncate file");
           return CURLE_WRITE_ERROR;
         }
         /* now seek to the end of the file, the position where we
@@ -533,13 +584,11 @@ static CURLcode retrycheck(struct OperationConfig *config,
         rc = fseek(outs->stream, 0, SEEK_END);
 #else
         /* ftruncate is not available, so just reposition the file
-           to the location we would have truncated it. This will not
-           work properly with large files on 32-bit systems, but
-           most of those will have ftruncate. */
-        rc = fseek(outs->stream, (long)outs->init, SEEK_SET);
+           to the location we would have truncated it. */
+        rc = curlx_fseek(outs->stream, outs->init, SEEK_SET);
 #endif
         if(rc) {
-          errorf(config->global, "Failed seeking to end of file");
+          errorf("Failed seeking to end of file");
           return CURLE_WRITE_ERROR;
         }
         outs->bytes = 0; /* clear for next round */
@@ -548,16 +597,16 @@ static CURLcode retrycheck(struct OperationConfig *config,
     *retryp = TRUE;
     per->num_retries++;
     *delayms = sleeptime;
+    result = CURLE_OK;
   }
-  return CURLE_OK;
+  return result;
 }
 
 
 /*
  * Call this after a transfer has completed.
  */
-static CURLcode post_per_transfer(struct GlobalConfig *global,
-                                  struct per_transfer *per,
+static CURLcode post_per_transfer(struct per_transfer *per,
                                   CURLcode result,
                                   bool *retryp,
                                   long *delay) /* milliseconds! */
@@ -573,8 +622,22 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
   if(!curl || !config)
     return result;
 
-  if(per->infdopen)
-    close(per->infd);
+  if(per->uploadfile) {
+    if(!strcmp(per->uploadfile, ".") && per->infd > 0) {
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
+      sclose(per->infd);
+#else
+      warnf("Closing per->infd != 0: FD == "
+            "%d. This behavior is only supported on desktop "
+            " Windows", per->infd);
+#endif
+    }
+  }
+  else {
+    if(per->infdopen) {
+      close(per->infd);
+    }
+  }
 
   if(per->skip)
     goto skip;
@@ -590,29 +653,31 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
     if(!config->synthetic_error && result &&
        (!global->silent || global->showerror)) {
       const char *msg = per->errorbuffer;
-      fprintf(tool_stderr, "curl: (%d) %s\n", result,
-              (msg && msg[0]) ? msg : curl_easy_strerror(result));
+      curl_mfprintf(tool_stderr, "curl: (%d) %s\n", result,
+                    msg[0] ? msg : curl_easy_strerror(result));
       if(result == CURLE_PEER_FAILED_VERIFICATION)
         fputs(CURL_CA_CERT_ERRORMSG, tool_stderr);
     }
-    else if(config->failwithbody) {
+    else if(config->fail == FAIL_WITH_BODY) {
       /* if HTTP response >= 400, return error */
       long code = 0;
       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
       if(code >= 400) {
         if(!global->silent || global->showerror)
-          fprintf(tool_stderr,
-                  "curl: (%d) The requested URL returned error: %ld\n",
-                  CURLE_HTTP_RETURNED_ERROR, code);
+          curl_mfprintf(tool_stderr,
+                        "curl: (%d) The requested URL returned error: %ld\n",
+                        CURLE_HTTP_RETURNED_ERROR, code);
         result = CURLE_HTTP_RETURNED_ERROR;
       }
     }
   /* Set file extended attributes */
   if(!result && config->xattr && outs->fopened && outs->stream) {
     rc = fwrite_xattr(curl, per->url, fileno(outs->stream));
-    if(rc)
-      warnf(config->global, "Error setting extended attributes on '%s': %s",
-            outs->filename, strerror(errno));
+    if(rc) {
+      char errbuf[STRERROR_LEN];
+      warnf("Error setting extended attributes on '%s': %s", outs->filename,
+            curlx_strerror(errno, errbuf, sizeof(errbuf)));
+    }
   }
 
   if(!result && !outs->stream && !outs->bytes) {
@@ -633,7 +698,7 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
     if(!result && rc) {
       /* something went wrong in the writing process */
       result = CURLE_WRITE_ERROR;
-      errorf(global, "Failed writing body");
+      errorf("Failed writing body");
     }
   }
 
@@ -646,9 +711,9 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
   /* if retry-max-time is non-zero, make sure we have not exceeded the
      time */
   if(per->retry_remaining &&
-     (!config->retry_maxtime ||
+     (!config->retry_maxtime_ms ||
       (curlx_timediff(curlx_now(), per->retrystart) <
-       config->retry_maxtime*1000L)) ) {
+       config->retry_maxtime_ms)) ) {
     result = retrycheck(config, per, result, retryp, delay);
     if(!result && *retryp)
       return CURLE_OK; /* retry! */
@@ -662,23 +727,22 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
 
   /* Close the outs file */
   if(outs->fopened && outs->stream) {
-    rc = fclose(outs->stream);
+    rc = curlx_fclose(outs->stream);
     if(!result && rc) {
       /* something went wrong in the writing process */
       result = CURLE_WRITE_ERROR;
-      errorf(config->global, "curl: (%d) Failed writing body", result);
+      errorf("curl: (%d) Failed writing body", result);
     }
     if(result && config->rm_partial) {
       struct_stat st;
-      if(!stat(outs->filename, &st) &&
-         S_ISREG(st.st_mode)) {
+      if(!curlx_stat(outs->filename, &st) && S_ISREG(st.st_mode)) {
         if(!unlink(outs->filename))
-          notef(global, "Removed output file: %s", outs->filename);
+          notef("Removed output file: %s", outs->filename);
         else
-          warnf(global, "Failed removing: %s", outs->filename);
+          warnf("Failed removing: %s", outs->filename);
       }
       else
-        warnf(global, "Skipping removal; not a regular file: %s",
+        warnf("Skipping removal; not a regular file: %s",
               outs->filename);
     }
   }
@@ -688,7 +752,8 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
     /* Ask libcurl if we got a remote file time */
     curl_off_t filetime = -1;
     curl_easy_getinfo(curl, CURLINFO_FILETIME_T, &filetime);
-    setfiletime(filetime, outs->filename, global);
+    if(filetime != -1)
+      setfiletime(filetime, outs->filename);
   }
 skip:
   /* Write the --write-out data before cleanup but after result is final */
@@ -697,13 +762,13 @@ skip:
 
   /* Close function-local opened file descriptors */
   if(per->heads.fopened && per->heads.stream)
-    fclose(per->heads.stream);
+    curlx_fclose(per->heads.stream);
 
   if(per->heads.alloc_filename)
     tool_safefree(per->heads.filename);
 
   if(per->etag_save.fopened && per->etag_save.stream)
-    fclose(per->etag_save.stream);
+    curlx_fclose(per->etag_save.stream);
 
   if(per->etag_save.alloc_filename)
     tool_safefree(per->etag_save.filename);
@@ -714,8 +779,6 @@ skip:
   free(per->url);
   free(per->outfile);
   free(per->uploadfile);
-  if(global->parallel)
-    free(per->errorbuffer);
   curl_slist_free_all(per->hdrcbdata.headlist);
   per->hdrcbdata.headlist = NULL;
   return result;
@@ -761,8 +824,7 @@ static CURLcode set_cert_types(struct OperationConfig *config)
   return CURLE_OK;
 }
 
-static CURLcode append2query(struct GlobalConfig *global,
-                             struct OperationConfig *config,
+static CURLcode append2query(struct OperationConfig *config,
                              struct per_transfer *per,
                              const char *q)
 {
@@ -774,7 +836,7 @@ static CURLcode append2query(struct GlobalConfig *global,
                         CURLU_GUESS_SCHEME);
     if(uerr) {
       result = urlerr_cvt(uerr);
-      errorf(global, "(%d) Could not parse the URL, "
+      errorf("(%d) Could not parse the URL, "
              "failed to set query", result);
       config->synthetic_error = TRUE;
     }
@@ -796,8 +858,7 @@ static CURLcode append2query(struct GlobalConfig *global,
   return result;
 }
 
-static CURLcode etag_compare(struct GlobalConfig *global,
-                             struct OperationConfig *config)
+static CURLcode etag_compare(struct OperationConfig *config)
 {
   CURLcode result = CURLE_OK;
   char *etag_from_file = NULL;
@@ -805,24 +866,25 @@ static CURLcode etag_compare(struct GlobalConfig *global,
   ParameterError pe;
 
   /* open file for reading: */
-  FILE *file = fopen(config->etag_compare_file, FOPEN_READTEXT);
-  if(!file)
-    warnf(global, "Failed to open %s: %s", config->etag_compare_file,
-          strerror(errno));
+  FILE *file = curlx_fopen(config->etag_compare_file, FOPEN_READTEXT);
+  if(!file) {
+    char errbuf[STRERROR_LEN];
+    warnf("Failed to open %s: %s", config->etag_compare_file,
+          curlx_strerror(errno, errbuf, sizeof(errbuf)));
+  }
 
   if((PARAM_OK == file2string(&etag_from_file, file)) &&
      etag_from_file) {
-    header = aprintf("If-None-Match: %s", etag_from_file);
+    header = curl_maprintf("If-None-Match: %s", etag_from_file);
     tool_safefree(etag_from_file);
   }
   else
-    header = aprintf("If-None-Match: \"\"");
+    header = curl_maprintf("If-None-Match: \"\"");
 
   if(!header) {
     if(file)
-      fclose(file);
-    errorf(global,
-           "Failed to allocate memory for custom etag header");
+      curlx_fclose(file);
+    errorf("Failed to allocate memory for custom etag header");
     return CURLE_OUT_OF_MEMORY;
   }
 
@@ -831,32 +893,28 @@ static CURLcode etag_compare(struct GlobalConfig *global,
   tool_safefree(header);
 
   if(file)
-    fclose(file);
+    curlx_fclose(file);
   if(pe != PARAM_OK)
     result = CURLE_OUT_OF_MEMORY;
   return result;
 }
 
-static CURLcode etag_store(struct GlobalConfig *global,
-                           struct OperationConfig *config,
+static CURLcode etag_store(struct OperationConfig *config,
                            struct OutStruct *etag_save,
                            bool *skip)
 {
   if(config->create_dirs) {
-    CURLcode result = create_dir_hierarchy(config->etag_save_file, global);
+    CURLcode result = create_dir_hierarchy(config->etag_save_file);
     if(result)
       return result;
   }
 
   /* open file for output: */
   if(strcmp(config->etag_save_file, "-")) {
-    FILE *newfile = fopen(config->etag_save_file, "ab");
+    FILE *newfile = curlx_fopen(config->etag_save_file, "ab");
     if(!newfile) {
-      struct State *state = &config->state;
-      warnf(global, "Failed creating file for saving etags: \"%s\". "
+      warnf("Failed creating file for saving etags: \"%s\". "
             "Skip this transfer", config->etag_save_file);
-      tool_safefree(state->outfiles);
-      glob_cleanup(&state->urls);
       *skip = TRUE;
       return CURLE_OK;
     }
@@ -869,13 +927,12 @@ static CURLcode etag_store(struct GlobalConfig *global,
   }
   else {
     /* always use binary mode for protocol header output */
-    CURL_SET_BINMODE(etag_save->stream);
+    CURLX_SET_BINMODE(etag_save->stream);
   }
   return CURLE_OK;
 }
 
-static CURLcode setup_headerfile(struct GlobalConfig *global,
-                                 struct OperationConfig *config,
+static CURLcode setup_headerfile(struct OperationConfig *config,
                                  struct per_transfer *per,
                                  struct OutStruct *heads)
 {
@@ -883,7 +940,7 @@ static CURLcode setup_headerfile(struct GlobalConfig *global,
   if(!strcmp(config->headerfile, "%")) {
     heads->stream = stderr;
     /* use binary mode for protocol header output */
-    CURL_SET_BINMODE(heads->stream);
+    CURLX_SET_BINMODE(heads->stream);
   }
   else if(strcmp(config->headerfile, "-")) {
     FILE *newfile;
@@ -898,20 +955,20 @@ static CURLcode setup_headerfile(struct GlobalConfig *global,
      * that it does not need to be opened/closed for every transfer.
      */
     if(config->create_dirs) {
-      CURLcode result = create_dir_hierarchy(config->headerfile, global);
+      CURLcode result = create_dir_hierarchy(config->headerfile);
       /* create_dir_hierarchy shows error upon CURLE_WRITE_ERROR */
       if(result)
         return result;
     }
     if(!per->prev || per->prev->config != config) {
-      newfile = fopen(config->headerfile, "wb");
+      newfile = curlx_fopen(config->headerfile, "wb");
       if(newfile)
-        fclose(newfile);
+        curlx_fclose(newfile);
     }
-    newfile = fopen(config->headerfile, "ab");
+    newfile = curlx_fopen(config->headerfile, "ab");
 
     if(!newfile) {
-      errorf(global, "Failed to open %s", config->headerfile);
+      errorf("Failed to open %s", config->headerfile);
       return CURLE_WRITE_ERROR;
     }
     else {
@@ -923,13 +980,12 @@ static CURLcode setup_headerfile(struct GlobalConfig *global,
   }
   else {
     /* always use binary mode for protocol header output */
-    CURL_SET_BINMODE(heads->stream);
+    CURLX_SET_BINMODE(heads->stream);
   }
   return CURLE_OK;
 }
 
-static CURLcode setup_outfile(struct GlobalConfig *global,
-                              struct OperationConfig *config,
+static CURLcode setup_outfile(struct OperationConfig *config,
                               struct per_transfer *per,
                               struct OutStruct *outs,
                               bool *skipped)
@@ -938,36 +994,37 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
    * We have specified a filename to store the result in, or we have
    * decided we want to use the remote filename.
    */
-  struct State *state = &config->state;
+  struct State *state = &global->state;
 
   if(!per->outfile) {
     /* extract the filename from the URL */
-    CURLcode result = get_url_file_name(global, &per->outfile, per->url);
+    CURLcode result = get_url_file_name(&per->outfile, per->url);
     if(result) {
-      errorf(global, "Failed to extract a filename"
+      errorf("Failed to extract a filename"
              " from the URL to use for storage");
       return result;
     }
   }
-  else if(state->urls) {
+  else if(glob_inuse(&state->urlglob)) {
     /* fill '#1' ... '#9' terms from URL pattern */
     char *storefile = per->outfile;
-    CURLcode result = glob_match_url(&per->outfile, storefile, state->urls);
+    CURLcode result =
+      glob_match_url(&per->outfile, storefile, &state->urlglob);
     tool_safefree(storefile);
     if(result) {
       /* bad globbing */
-      warnf(global, "bad output glob");
+      warnf("bad output glob");
       return result;
     }
     if(!*per->outfile) {
-      warnf(global, "output glob produces empty string");
+      warnf("output glob produces empty string");
       return CURLE_WRITE_ERROR;
     }
   }
   DEBUGASSERT(per->outfile);
 
   if(config->output_dir && *config->output_dir) {
-    char *d = aprintf("%s/%s", config->output_dir, per->outfile);
+    char *d = curl_maprintf("%s/%s", config->output_dir, per->outfile);
     if(!d)
       return CURLE_WRITE_ERROR;
     free(per->outfile);
@@ -977,7 +1034,7 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
      file output call */
 
   if(config->create_dirs) {
-    CURLcode result = create_dir_hierarchy(per->outfile, global);
+    CURLcode result = create_dir_hierarchy(per->outfile);
     /* create_dir_hierarchy shows error upon CURLE_WRITE_ERROR */
     if(result)
       return result;
@@ -985,10 +1042,9 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
 
   if(config->skip_existing) {
     struct_stat fileinfo;
-    if(!stat(per->outfile, &fileinfo)) {
+    if(!curlx_stat(per->outfile, &fileinfo)) {
       /* file is present */
-      notef(global, "skips transfer, \"%s\" exists locally",
-            per->outfile);
+      notef("skips transfer, \"%s\" exists locally", per->outfile);
       per->skip = TRUE;
       *skipped = TRUE;
     }
@@ -999,7 +1055,7 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
        of the file as it is now and open it for append instead */
     struct_stat fileinfo;
     /* VMS -- Danger, the filesize is only valid for stream files */
-    if(0 == stat(per->outfile, &fileinfo))
+    if(curlx_stat(per->outfile, &fileinfo) == 0)
       /* set offset to current file size: */
       config->resume_from = fileinfo.st_size;
     else
@@ -1011,14 +1067,14 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
 #ifdef __VMS
     /* open file for output, forcing VMS output format into stream
        mode which is needed for stat() call above to always work. */
-    FILE *file = fopen(outfile, "ab",
-                       "ctx=stm", "rfm=stmlf", "rat=cr", "mrs=0");
+    FILE *file = curlx_fopen(outfile, "ab",
+                             "ctx=stm", "rfm=stmlf", "rat=cr", "mrs=0");
 #else
     /* open file for output: */
-    FILE *file = fopen(per->outfile, "ab");
+    FILE *file = curlx_fopen(per->outfile, "ab");
 #endif
     if(!file) {
-      errorf(global, "cannot open '%s'", per->outfile);
+      errorf("cannot open '%s'", per->outfile);
       return CURLE_WRITE_ERROR;
     }
     outs->fopened = TRUE;
@@ -1033,8 +1089,7 @@ static CURLcode setup_outfile(struct GlobalConfig *global,
   return CURLE_OK;
 }
 
-static void check_stdin_upload(struct GlobalConfig *global,
-                               struct OperationConfig *config,
+static void check_stdin_upload(struct OperationConfig *config,
                                struct per_transfer *per)
 {
   /* count to see if there are more than one auth bit set
@@ -1056,8 +1111,7 @@ static void check_stdin_upload(struct GlobalConfig *global,
    * we should warn them.
    */
   if(config->proxyanyauth || (authbits > 1)) {
-    warnf(global,
-          "Using --anyauth or --proxy-anyauth with upload from stdin"
+    warnf("Using --anyauth or --proxy-anyauth with upload from stdin"
           " involves a big risk of it not working. Use a temporary"
           " file or a fixed auth type instead");
   }
@@ -1065,26 +1119,44 @@ static void check_stdin_upload(struct GlobalConfig *global,
   DEBUGASSERT(per->infdopen == FALSE);
   DEBUGASSERT(per->infd == STDIN_FILENO);
 
-  CURL_SET_BINMODE(stdin);
+  CURLX_SET_BINMODE(stdin);
   if(!strcmp(per->uploadfile, ".")) {
-    if(curlx_nonblock((curl_socket_t)per->infd, TRUE) < 0)
-      warnf(global,
-            "fcntl failed on fd=%d: %s", per->infd, strerror(errno));
+#if defined(_WIN32) && !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE)
+    /* non-blocking stdin behavior on Windows is challenging
+       Spawn a new thread that will read from stdin and write
+       out to a socket */
+    curl_socket_t f = win32_stdin_read_thread();
+
+    if(f == CURL_SOCKET_BAD)
+      warnf("win32_stdin_read_thread returned INVALID_SOCKET "
+            "falling back to blocking mode");
+    else if(f > INT_MAX) {
+      warnf("win32_stdin_read_thread returned identifier "
+            "larger than INT_MAX. This should not happen unless "
+            "the upper 32 bits of a Windows socket have started "
+            "being used for something... falling back to blocking "
+            "mode");
+      sclose(f);
+    }
+    else
+      per->infd = (int)f;
+#endif
+    if(curlx_nonblock((curl_socket_t)per->infd, TRUE) < 0) {
+      char errbuf[STRERROR_LEN];
+      warnf("fcntl failed on fd=%d: %s", per->infd,
+            curlx_strerror(errno, errbuf, sizeof(errbuf)));
+    }
   }
 }
 
 /* create the next (singular) transfer */
-static CURLcode single_transfer(struct GlobalConfig *global,
-                                struct OperationConfig *config,
-                                CURLSH *share,
-                                bool *added,
-                                bool *skipped)
+static CURLcode single_transfer(struct OperationConfig *config,
+                                CURLSH *share, bool *added, bool *skipped)
 {
   CURLcode result = CURLE_OK;
-  struct getout *urlnode;
   bool orig_noprogress = global->noprogress;
   bool orig_isatty = global->isatty;
-  struct State *state = &config->state;
+  struct State *state = &global->state;
   char *httpgetfields = state->httpgetfields;
 
   *skipped = *added = FALSE; /* not yet */
@@ -1095,317 +1167,244 @@ static CURLcode single_transfer(struct GlobalConfig *global,
         /* Use the postfields data for an HTTP get */
         httpgetfields = state->httpgetfields = config->postfields;
         config->postfields = NULL;
-        if(SetHTTPrequest(config, (config->no_body ? TOOL_HTTPREQ_HEAD :
-                                   TOOL_HTTPREQ_GET), &config->httpreq)) {
-          result = CURLE_FAILED_INIT;
-        }
+        if(SetHTTPrequest((config->no_body ? TOOL_HTTPREQ_HEAD :
+                           TOOL_HTTPREQ_GET), &config->httpreq))
+          return CURLE_FAILED_INIT;
       }
     }
-    else {
-      if(SetHTTPrequest(config, TOOL_HTTPREQ_SIMPLEPOST, &config->httpreq))
-        result = CURLE_FAILED_INIT;
-    }
-    if(result)
-      goto fail;
-  }
-  if(!state->urlnode) {
-    /* first time caller, setup things */
-    state->urlnode = config->url_list;
-    state->infilenum = 1;
+    else if(SetHTTPrequest(TOOL_HTTPREQ_SIMPLEPOST, &config->httpreq))
+      return CURLE_FAILED_INIT;
   }
 
   result = set_cert_types(config);
   if(result)
-    goto fail;
+    return result;
 
-  for(; state->urlnode; state->urlnode = urlnode->next) {
-    static bool warn_more_options = FALSE;
-    curl_off_t urlnum;
+  if(!state->urlnode) {
+    /* first time caller, setup things */
+    state->urlnode = config->url_list;
+    state->upnum = 1;
+  }
 
-    urlnode = state->urlnode;
-    /* urlnode->url is the full URL or NULL */
-    if(!urlnode->url) {
-      /* This node has no URL. Free node data without destroying the
-         node itself nor modifying next pointer and continue to next */
-      urlnode->outset = urlnode->urlset = urlnode->useremote =
-        urlnode->uploadset = urlnode->noupload = urlnode->noglob = FALSE;
-      state->up = 0;
-      if(!warn_more_options) {
-        /* only show this once */
-        warnf(config->global, "Got more output options than URLs");
-        warn_more_options = TRUE;
-      }
-      continue; /* next URL please */
+  while(state->urlnode) {
+    struct per_transfer *per = NULL;
+    struct OutStruct *outs;
+    struct OutStruct *heads;
+    struct HdrCbData *hdrcbdata = NULL;
+    struct OutStruct etag_first;
+    CURL *curl;
+    struct getout *u = state->urlnode;
+    FILE *err = (!global->silent || global->showerror) ? tool_stderr : NULL;
+
+    if(!u->url) {
+      /* This node has no URL. End of the road. */
+      warnf("Got more output options than URLs");
+      break;
     }
-
-    /* save outfile pattern before expansion */
-    if(urlnode->outfile && !state->outfiles) {
-      state->outfiles = strdup(urlnode->outfile);
-      if(!state->outfiles) {
-        errorf(global, "out of memory");
-        result = CURLE_OUT_OF_MEMORY;
-        break;
-      }
-    }
-
-    if(!config->globoff && urlnode->infile && !state->inglob) {
-      /* Unless explicitly shut off */
-      result = glob_url(&state->inglob, urlnode->infile, &state->infilenum,
-                        (!global->silent || global->showerror) ?
-                        tool_stderr : NULL);
-      if(result)
-        break;
-    }
-
-
-    if(state->up || urlnode->infile) {
+    if(u->infile) {
+      if(!config->globoff && !glob_inuse(&state->inglob))
+        result = glob_url(&state->inglob, u->infile, &state->upnum, err);
       if(!state->uploadfile) {
-        if(state->inglob) {
-          result = glob_next_url(&state->uploadfile, state->inglob);
-          if(result == CURLE_OUT_OF_MEMORY)
-            errorf(global, "out of memory");
-        }
-        else if(!state->up) {
+        if(glob_inuse(&state->inglob))
+          result = glob_next_url(&state->uploadfile, &state->inglob);
+        else if(!state->upidx) {
           /* copy the allocated string */
-          state->uploadfile = urlnode->infile;
-          urlnode->infile = NULL;
+          state->uploadfile = u->infile;
+          u->infile = NULL;
         }
       }
       if(result)
-        break;
+        return result;
+    }
+
+    if(state->upidx >= state->upnum) {
+      state->urlnum = 0;
+      tool_safefree(state->uploadfile);
+      glob_cleanup(&state->inglob);
+      state->upidx = 0;
+      state->urlnode = u->next; /* next node */
+      continue;
     }
 
     if(!state->urlnum) {
-      if(!config->globoff && !urlnode->noglob) {
+      if(!config->globoff && !u->noglob) {
         /* Unless explicitly shut off, we expand '{...}' and '[...]'
            expressions and return total number of URLs in pattern set */
-        result = glob_url(&state->urls, urlnode->url, &state->urlnum,
-                          (!global->silent || global->showerror) ?
-                          tool_stderr : NULL);
+        result = glob_url(&state->urlglob, u->url, &state->urlnum, err);
         if(result)
-          break;
-        urlnum = state->urlnum;
+          return result;
       }
       else
-        urlnum = 1; /* without globbing, this is a single URL */
+        state->urlnum = 1; /* without globbing, this is a single URL */
     }
-    else
-      urlnum = state->urlnum;
 
-    if(state->up < state->infilenum) {
-      struct per_transfer *per = NULL;
-      struct OutStruct *outs;
-      struct OutStruct *heads;
-      struct OutStruct *etag_save;
-      struct HdrCbData *hdrcbdata = NULL;
-      struct OutStruct etag_first;
-      CURL *curl;
+    /* --etag-save */
+    memset(&etag_first, 0, sizeof(etag_first));
+    etag_first.stream = stdout;
 
-      /* --etag-save */
-      memset(&etag_first, 0, sizeof(etag_first));
-      etag_save = &etag_first;
-      etag_save->stream = stdout;
-
-      /* --etag-compare */
-      if(config->etag_compare_file) {
-        result = etag_compare(global, config);
-        if(result)
-          break;
-      }
-
-      if(config->etag_save_file) {
-        bool badetag = FALSE;
-        result = etag_store(global, config, etag_save, &badetag);
-        if(result || badetag)
-          break;
-      }
-
-      curl = curl_easy_init();
-      if(curl)
-        result = add_per_transfer(&per);
-      else
-        result = CURLE_OUT_OF_MEMORY;
-      if(result) {
-        curl_easy_cleanup(curl);
-        if(etag_save->fopened)
-          fclose(etag_save->stream);
-        break;
-      }
-      per->etag_save = etag_first; /* copy the whole struct */
-      if(state->uploadfile) {
-        per->uploadfile = strdup(state->uploadfile);
-        if(!per->uploadfile) {
-          curl_easy_cleanup(curl);
-          result = CURLE_OUT_OF_MEMORY;
-          break;
-        }
-        if(SetHTTPrequest(config, TOOL_HTTPREQ_PUT, &config->httpreq)) {
-          tool_safefree(per->uploadfile);
-          curl_easy_cleanup(curl);
-          result = CURLE_FAILED_INIT;
-          break;
-        }
-      }
-      *added = TRUE;
-      per->config = config;
-      per->curl = curl;
-      per->urlnum = (unsigned int)urlnode->num;
-
-      /* default headers output stream is stdout */
-      heads = &per->heads;
-      heads->stream = stdout;
-
-      /* Single header file for all URLs */
-      if(config->headerfile) {
-        result = setup_headerfile(global, config, per, heads);
-        if(result)
-          break;
-      }
-      hdrcbdata = &per->hdrcbdata;
-
-      outs = &per->outs;
-
-      per->outfile = NULL;
-      per->infdopen = FALSE;
-      per->infd = STDIN_FILENO;
-
-      /* default output stream is stdout */
-      outs->stream = stdout;
-
-      if(state->urls) {
-        result = glob_next_url(&per->url, state->urls);
-        if(result)
-          break;
-      }
-      else if(!state->li) {
-        per->url = strdup(urlnode->url);
-        if(!per->url) {
-          result = CURLE_OUT_OF_MEMORY;
-          break;
-        }
-      }
-      else
-        per->url = NULL;
-      if(!per->url)
-        break;
-
-      if(state->outfiles) {
-        per->outfile = strdup(state->outfiles);
-        if(!per->outfile) {
-          result = CURLE_OUT_OF_MEMORY;
-          break;
-        }
-      }
-
-      if((urlnode->useremote ||
-          (per->outfile && strcmp("-", per->outfile)))) {
-        result = setup_outfile(global, config, per, outs, skipped);
-        if(result)
-          break;
-      }
-
-      if(per->uploadfile) {
-
-        if(stdin_upload(per->uploadfile))
-          check_stdin_upload(global, config, per);
-        else {
-          /*
-           * We have specified a file to upload and it is not "-".
-           */
-          result = add_file_name_to_url(per->curl, &per->url,
-                                        per->uploadfile);
-          if(result)
-            break;
-        }
-      }
-
-      if(per->uploadfile && config->resume_from_current)
-        config->resume_from = -1; /* -1 will then force get-it-yourself */
-
-      if(output_expected(per->url, per->uploadfile) && outs->stream &&
-         isatty(fileno(outs->stream)))
-        /* we send the output to a tty, therefore we switch off the progress
-           meter */
-        per->noprogress = global->noprogress = global->isatty = TRUE;
-      else {
-        /* progress meter is per download, so restore config
-           values */
-        per->noprogress = global->noprogress = orig_noprogress;
-        global->isatty = orig_isatty;
-      }
-
-      if(httpgetfields || config->query) {
-        result = append2query(global, config, per,
-                              httpgetfields ? httpgetfields : config->query);
-        if(result)
-          break;
-      }
-
-      if((!per->outfile || !strcmp(per->outfile, "-")) &&
-         !config->use_ascii) {
-        /* We get the output to stdout and we have not got the ASCII/text
-           flag, then set stdout to be binary */
-        CURL_SET_BINMODE(stdout);
-      }
-
-      /* explicitly passed to stdout means okaying binary gunk */
-      config->terminal_binary_ok =
-        (per->outfile && !strcmp(per->outfile, "-"));
-
-      if(config->content_disposition && urlnode->useremote)
-        hdrcbdata->honor_cd_filename = TRUE;
-      else
-        hdrcbdata->honor_cd_filename = FALSE;
-
-      hdrcbdata->outs = outs;
-      hdrcbdata->heads = heads;
-      hdrcbdata->etag_save = etag_save;
-      hdrcbdata->global = global;
-      hdrcbdata->config = config;
-
-      result = config2setopts(global, config, per, curl, share);
+    /* --etag-compare */
+    if(config->etag_compare_file) {
+      result = etag_compare(config);
       if(result)
+        return result;
+    }
+
+    if(config->etag_save_file) {
+      bool badetag = FALSE;
+      result = etag_store(config, &etag_first, &badetag);
+      if(result || badetag)
         break;
+    }
 
-      /* initialize retry vars for loop below */
-      per->retry_sleep_default = (config->retry_delay) ?
-        config->retry_delay*1000L : RETRY_SLEEP_DEFAULT; /* ms */
-      per->retry_remaining = config->req_retry;
-      per->retry_sleep = per->retry_sleep_default; /* ms */
-      per->retrystart = curlx_now();
-
-      state->li++;
-      /* Here's looping around each globbed URL */
-      if(state->li >= urlnum) {
-        state->li = 0;
-        state->urlnum = 0; /* forced reglob of URLs */
-        glob_cleanup(&state->urls);
-        state->up++;
-        tool_safefree(state->uploadfile); /* clear it to get the next */
+    curl = curl_easy_init();
+    if(curl)
+      result = add_per_transfer(&per);
+    else
+      result = CURLE_OUT_OF_MEMORY;
+    if(result) {
+      curl_easy_cleanup(curl);
+      if(etag_first.fopened)
+        curlx_fclose(etag_first.stream);
+      return result;
+    }
+    per->etag_save = etag_first; /* copy the whole struct */
+    if(state->uploadfile) {
+      per->uploadfile = strdup(state->uploadfile);
+      if(!per->uploadfile ||
+         SetHTTPrequest(TOOL_HTTPREQ_PUT, &config->httpreq)) {
+        tool_safefree(per->uploadfile);
+        curl_easy_cleanup(curl);
+        return CURLE_FAILED_INIT;
       }
+    }
+    per->config = config;
+    per->curl = curl;
+    per->urlnum = u->num;
+
+    /* default headers output stream is stdout */
+    heads = &per->heads;
+    heads->stream = stdout;
+
+    /* Single header file for all URLs */
+    if(config->headerfile) {
+      result = setup_headerfile(config, per, heads);
+      if(result)
+        return result;
+    }
+    hdrcbdata = &per->hdrcbdata;
+
+    outs = &per->outs;
+
+    per->outfile = NULL;
+    per->infdopen = FALSE;
+    per->infd = STDIN_FILENO;
+
+    /* default output stream is stdout */
+    outs->stream = stdout;
+
+    if(glob_inuse(&state->urlglob))
+      result = glob_next_url(&per->url, &state->urlglob);
+    else if(!state->urlidx) {
+      per->url = strdup(u->url);
+      if(!per->url)
+        result = CURLE_OUT_OF_MEMORY;
     }
     else {
-      /* Free this URL node data without destroying the
-         node itself nor modifying next pointer. */
-      urlnode->outset = urlnode->urlset = urlnode->useremote =
-        urlnode->uploadset = urlnode->noupload = urlnode->noglob = FALSE;
-      glob_cleanup(&state->urls);
-      state->urlnum = 0;
-
-      tool_safefree(state->outfiles);
-      tool_safefree(state->uploadfile);
-      /* Free list of globbed upload files */
-      glob_cleanup(&state->inglob);
-      state->up = 0;
-      continue;
+      per->url = NULL;
+      break;
     }
+    if(result)
+      return result;
+
+    if(u->outfile) {
+      per->outfile = strdup(u->outfile);
+      if(!per->outfile)
+        return CURLE_OUT_OF_MEMORY;
+    }
+
+    outs->out_null = u->out_null;
+    if(!outs->out_null &&
+       (u->useremote || (per->outfile && strcmp("-", per->outfile)))) {
+      result = setup_outfile(config, per, outs, skipped);
+      if(result)
+        return result;
+    }
+
+    if(per->uploadfile) {
+
+      if(stdin_upload(per->uploadfile))
+        check_stdin_upload(config, per);
+      else {
+        /*
+         * We have specified a file to upload and it is not "-".
+         */
+        result = add_file_name_to_url(per->curl, &per->url,
+                                      per->uploadfile);
+        if(result)
+          return result;
+      }
+
+      if(config->resume_from_current)
+        config->resume_from = -1; /* -1 will then force get-it-yourself */
+    }
+
+    if(!outs->out_null && output_expected(per->url, per->uploadfile) &&
+       outs->stream && isatty(fileno(outs->stream)))
+      /* we send the output to a tty, therefore we switch off the progress
+         meter */
+      per->noprogress = global->noprogress = global->isatty = TRUE;
+    else {
+      /* progress meter is per download, so restore config
+         values */
+      per->noprogress = global->noprogress = orig_noprogress;
+      global->isatty = orig_isatty;
+    }
+
+    if(httpgetfields || config->query) {
+      result = append2query(config, per,
+                            httpgetfields ? httpgetfields : config->query);
+      if(result)
+        return result;
+    }
+
+    if((!per->outfile || !strcmp(per->outfile, "-")) &&
+       !config->use_ascii) {
+      /* We get the output to stdout and we have not got the ASCII/text flag,
+         then set stdout to be binary */
+      CURLX_SET_BINMODE(stdout);
+    }
+
+    /* explicitly passed to stdout means okaying binary gunk */
+    config->terminal_binary_ok =
+      (per->outfile && !strcmp(per->outfile, "-"));
+
+    hdrcbdata->honor_cd_filename =
+      (config->content_disposition && u->useremote);
+    hdrcbdata->outs = outs;
+    hdrcbdata->heads = heads;
+    hdrcbdata->etag_save = &etag_first;
+    hdrcbdata->config = config;
+
+    result = config2setopts(config, per, curl, share);
+    if(result)
+      return result;
+
+    /* initialize retry vars for loop below */
+    per->retry_sleep_default = config->retry_delay_ms;
+    per->retry_remaining = config->req_retry;
+    per->retry_sleep = per->retry_sleep_default; /* ms */
+    per->retrystart = curlx_now();
+
+    state->urlidx++;
+    /* Here's looping around each globbed URL */
+    if(state->urlidx >= state->urlnum) {
+      state->urlidx = state->urlnum = 0;
+      glob_cleanup(&state->urlglob);
+      state->upidx++;
+      tool_safefree(state->uploadfile); /* clear it to get the next */
+    }
+    *added = TRUE;
     break;
-  }
-  tool_safefree(state->outfiles);
-fail:
-  if(!*added || result) {
-    *added = FALSE;
-    single_transfer_cleanup(config);
   }
   return result;
 }
@@ -1417,23 +1416,27 @@ static long all_added; /* number of easy handles currently added */
  * to add even after this call returns. sets 'addedp' to TRUE if one or more
  * transfers were added.
  */
-static CURLcode add_parallel_transfers(struct GlobalConfig *global,
-                                       CURLM *multi,
-                                       CURLSH *share,
-                                       bool *morep,
-                                       bool *addedp)
+static CURLcode add_parallel_transfers(CURLM *multi, CURLSH *share,
+                                       bool *morep, bool *addedp)
 {
   struct per_transfer *per;
   CURLcode result = CURLE_OK;
   CURLMcode mcode;
   bool sleeping = FALSE;
-  char *errorbuf;
+  curl_off_t nxfers;
+
   *addedp = FALSE;
   *morep = FALSE;
-  if(all_pers < (global->parallel_max*2)) {
+  mcode = curl_multi_get_offt(multi, CURLMINFO_XFERS_CURRENT, &nxfers);
+  if(mcode) {
+    DEBUGASSERT(0);
+    return CURLE_UNKNOWN_OPTION;
+  }
+
+  if(nxfers < (curl_off_t)(global->parallel_max*2)) {
     bool skipped = FALSE;
     do {
-      result = create_transfer(global, share, addedp, &skipped);
+      result = create_transfer(share, addedp, &skipped);
       if(result)
         return result;
     } while(skipped);
@@ -1450,22 +1453,21 @@ static CURLcode add_parallel_transfers(struct GlobalConfig *global,
     }
     per->added = TRUE;
 
-    result = pre_transfer(global, per);
+    result = pre_transfer(per);
     if(result)
       return result;
-
-    errorbuf = malloc(CURL_ERROR_SIZE);
-    if(!errorbuf)
-      return CURLE_OUT_OF_MEMORY;
 
     /* parallel connect means that we do not set PIPEWAIT since pipewait
        will make libcurl prefer multiplexing */
     (void)curl_easy_setopt(per->curl, CURLOPT_PIPEWAIT,
                            global->parallel_connect ? 0L : 1L);
     (void)curl_easy_setopt(per->curl, CURLOPT_PRIVATE, per);
+    /* curl does not use signals, switching this on saves some system calls */
+    (void)curl_easy_setopt(per->curl, CURLOPT_NOSIGNAL, 1L);
     (void)curl_easy_setopt(per->curl, CURLOPT_XFERINFOFUNCTION, xferinfo_cb);
     (void)curl_easy_setopt(per->curl, CURLOPT_XFERINFODATA, per);
     (void)curl_easy_setopt(per->curl, CURLOPT_NOPROGRESS, 0L);
+    (void)curl_easy_setopt(per->curl, CURLOPT_ERRORBUFFER, per->errorbuffer);
 #ifdef DEBUGBUILD
     if(getenv("CURL_FORBID_REUSE"))
       (void)curl_easy_setopt(per->curl, CURLOPT_FORBID_REUSE, 1L);
@@ -1481,18 +1483,15 @@ static CURLcode add_parallel_transfers(struct GlobalConfig *global,
       bool getadded = FALSE;
       bool skipped = FALSE;
       do {
-        result = create_transfer(global, share, &getadded, &skipped);
+        result = create_transfer(share, &getadded, &skipped);
         if(result)
           break;
       } while(skipped);
     }
-    if(result) {
-      free(errorbuf);
+    if(result)
       return result;
-    }
-    errorbuf[0] = 0;
-    (void)curl_easy_setopt(per->curl, CURLOPT_ERRORBUFFER, errorbuf);
-    per->errorbuffer = errorbuf;
+
+    per->errorbuffer[0] = 0;
     per->added = TRUE;
     all_added++;
     *addedp = TRUE;
@@ -1502,7 +1501,6 @@ static CURLcode add_parallel_transfers(struct GlobalConfig *global,
 }
 
 struct parastate {
-  struct GlobalConfig *global;
   CURLM *multi;
   CURLSH *share;
   CURLMcode mcode;
@@ -1535,27 +1533,8 @@ struct contextuv {
   struct datauv *uv;
 };
 
-static CURLcode check_finished(struct parastate *s);
-
-static void check_multi_info(struct datauv *uv)
-{
-  CURLcode result;
-
-  result = check_finished(uv->s);
-  if(result && !uv->s->result)
-    uv->s->result = result;
-
-  if(uv->s->more_transfers) {
-    result = add_parallel_transfers(uv->s->global, uv->s->multi,
-                                    uv->s->share,
-                                    &uv->s->more_transfers,
-                                    &uv->s->added_transfers);
-    if(result && !uv->s->result)
-      uv->s->result = result;
-    if(result)
-      uv_stop(uv->loop);
-  }
-}
+static void mnotify(CURLM *multi, unsigned int notification,
+                    CURL *easy, void *user_data);
 
 /* callback from libuv on socket activity */
 static void on_uv_socket(uv_poll_t *req, int status, int events)
@@ -1577,22 +1556,21 @@ static void on_uv_timeout(uv_timer_t *req)
 {
   struct datauv *uv = (struct datauv *) req->data;
 #if DEBUG_UV
-  fprintf(tool_stderr, "parallel_event: on_uv_timeout\n");
+  curl_mfprintf(tool_stderr, "parallel_event: on_uv_timeout\n");
 #endif
   if(uv && uv->s) {
     curl_multi_socket_action(uv->s->multi, CURL_SOCKET_TIMEOUT, 0,
                              &uv->s->still_running);
-    check_multi_info(uv);
   }
 }
 
 /* callback from libcurl to update the timeout expiry */
-static int cb_timeout(CURLM *multi, long timeout_ms,
-                      struct datauv *uv)
+static int cb_timeout(CURLM *multi, long timeout_ms, void *userp)
 {
+  struct datauv *uv = userp;
   (void)multi;
 #if DEBUG_UV
-  fprintf(tool_stderr, "parallel_event: cb_timeout=%ld\n", timeout_ms);
+  curl_mfprintf(tool_stderr, "parallel_event: cb_timeout=%ld\n", timeout_ms);
 #endif
   if(timeout_ms < 0)
     uv_timer_stop(&uv->timeout);
@@ -1635,16 +1613,16 @@ static void destroy_context(struct contextuv *c)
 
 /* callback from libcurl to update socket activity to wait for */
 static int cb_socket(CURL *easy, curl_socket_t s, int action,
-                     struct datauv *uv,
-                     void *socketp)
+                     void *userp, void *socketp)
 {
   struct contextuv *c;
   int events = 0;
+  struct datauv *uv = userp;
   (void)easy;
 
 #if DEBUG_UV
-  fprintf(tool_stderr, "parallel_event: cb_socket, fd=%d, action=%x, p=%p\n",
-          (int)s, action, socketp);
+  curl_mfprintf(tool_stderr, "parallel_event: cb_socket, "
+                "fd=%" FMT_SOCKET_T ", action=%x, p=%p\n", s, action, socketp);
 #endif
   switch(action) {
   case CURL_POLL_IN:
@@ -1668,8 +1646,6 @@ static int cb_socket(CURL *easy, curl_socket_t s, int action,
       uv_poll_stop(&c->poll_handle);
       destroy_context(c);
       curl_multi_assign(uv->s->multi, s, NULL);
-      /* check if we can do more now */
-      check_multi_info(uv);
     }
     break;
   default:
@@ -1695,6 +1671,8 @@ static CURLcode parallel_event(struct parastate *s)
   curl_multi_setopt(s->multi, CURLMOPT_SOCKETDATA, &uv);
   curl_multi_setopt(s->multi, CURLMOPT_TIMERFUNCTION, cb_timeout);
   curl_multi_setopt(s->multi, CURLMOPT_TIMERDATA, &uv);
+  curl_multi_setopt(s->multi, CURLMOPT_MAX_HOST_CONNECTIONS, (long)
+                    global->parallel_host);
 
   /* kickstart the thing */
   curl_multi_socket_action(s->multi, CURL_SOCKET_TIMEOUT, 0,
@@ -1702,17 +1680,14 @@ static CURLcode parallel_event(struct parastate *s)
 
   while(!s->mcode && (s->still_running || s->more_transfers)) {
 #if DEBUG_UV
-    fprintf(tool_stderr, "parallel_event: uv_run(), mcode=%d, %d running, "
-            "%d more\n", s->mcode, uv.s->still_running, s->more_transfers);
+    curl_mfprintf(tool_stderr, "parallel_event: uv_run(), "
+                  "mcode=%d, %d running, %d more\n",
+                  s->mcode, uv.s->still_running, s->more_transfers);
 #endif
     uv_run(uv.loop, UV_RUN_DEFAULT);
 #if DEBUG_UV
-    fprintf(tool_stderr, "parallel_event: uv_run() returned\n");
+    curl_mfprintf(tool_stderr, "parallel_event: uv_run() returned\n");
 #endif
-
-    result = check_finished(s);
-    if(result && !s->result)
-      s->result = result;
 
     /* early exit called */
     if(s->wrapitup) {
@@ -1725,13 +1700,6 @@ static CURLcode parallel_event(struct parastate *s)
         s->wrapitup_processed = TRUE;
       }
       break;
-    }
-
-    if(s->more_transfers) {
-      result = add_parallel_transfers(s->global, s->multi, s->share,
-                                      &s->more_transfers, &s->added_transfers);
-      if(result && !s->result)
-        s->result = result;
     }
   }
 
@@ -1750,8 +1718,8 @@ static CURLcode parallel_event(struct parastate *s)
   curl_multi_cleanup(s->multi);
 
 #if DEBUG_UV
-  fprintf(tool_stderr, "DONE parallel_event -> %d, mcode=%d, %d running, "
-          "%d more\n",
+  curl_mfprintf(tool_stderr, "DONE parallel_event -> %d, mcode=%d, "
+          "%d running, %d more\n",
           result, s->mcode, uv.s->still_running, s->more_transfers);
 #endif
   return result;
@@ -1765,8 +1733,7 @@ static CURLcode check_finished(struct parastate *s)
   int rc;
   CURLMsg *msg;
   bool checkmore = FALSE;
-  struct GlobalConfig *global = s->global;
-  progress_meter(global, &s->start, FALSE);
+  progress_meter(s->multi, &s->start, FALSE);
   do {
     msg = curl_multi_info_read(s->multi, &rc);
     if(msg) {
@@ -1778,13 +1745,12 @@ static CURLcode check_finished(struct parastate *s)
       curl_easy_getinfo(easy, CURLINFO_PRIVATE, (void *)&ended);
       curl_multi_remove_handle(s->multi, easy);
 
-      if(ended->abort && (tres == CURLE_ABORTED_BY_CALLBACK) &&
-         ended->errorbuffer) {
-        msnprintf(ended->errorbuffer, CURL_ERROR_SIZE,
-                  "Transfer aborted due to critical error "
-                  "in another transfer");
+      if(ended->abort && (tres == CURLE_ABORTED_BY_CALLBACK)) {
+        curl_msnprintf(ended->errorbuffer, CURL_ERROR_SIZE,
+                       "Transfer aborted due to critical error "
+                       "in another transfer");
       }
-      tres = post_per_transfer(global, ended, tres, &retry, &delay);
+      tres = post_per_transfer(ended, tres, &retry, &delay);
       progress_finalize(ended); /* before it goes away */
       all_added--; /* one fewer added */
       checkmore = TRUE;
@@ -1814,7 +1780,7 @@ static CURLcode check_finished(struct parastate *s)
     }
     if(checkmore) {
       /* one or more transfers completed, add more! */
-      CURLcode tres = add_parallel_transfers(global, s->multi, s->share,
+      CURLcode tres = add_parallel_transfers(s->multi, s->share,
                                              &s->more_transfers,
                                              &s->added_transfers);
       if(tres)
@@ -1829,8 +1795,28 @@ static CURLcode check_finished(struct parastate *s)
   return result;
 }
 
-static CURLcode parallel_transfers(struct GlobalConfig *global,
-                                   CURLSH *share)
+static void mnotify(CURLM *multi, unsigned int notification,
+                    CURL *easy, void *user_data)
+{
+  struct parastate *s = user_data;
+  CURLcode result;
+
+  (void)multi;
+  (void)easy;
+
+  switch(notification) {
+  case CURLMNOTIFY_INFO_READ:
+    result = check_finished(s);
+    /* remember first failure */
+    if(result && !s->result)
+      s->result = result;
+    break;
+  default:
+    break;
+  }
+}
+
+static CURLcode parallel_transfers(CURLSH *share)
 {
   CURLcode result;
   struct parastate p;
@@ -1843,12 +1829,15 @@ static CURLcode parallel_transfers(struct GlobalConfig *global,
   s->wrapitup = FALSE;
   s->wrapitup_processed = FALSE;
   s->tick = time(NULL);
-  s->global = global;
   s->multi = curl_multi_init();
   if(!s->multi)
     return CURLE_OUT_OF_MEMORY;
 
-  result = add_parallel_transfers(global, s->multi, s->share,
+  (void)curl_multi_setopt(s->multi, CURLMOPT_NOTIFYFUNCTION, mnotify);
+  (void)curl_multi_setopt(s->multi, CURLMOPT_NOTIFYDATA, s);
+  (void)curl_multi_notify_enable(s->multi, CURLMNOTIFY_INFO_READ);
+
+  result = add_parallel_transfers(s->multi, s->share,
                                   &s->more_transfers, &s->added_transfers);
   if(result) {
     curl_multi_cleanup(s->multi);
@@ -1860,7 +1849,7 @@ static CURLcode parallel_transfers(struct GlobalConfig *global,
 #ifdef USE_LIBUV
     return parallel_event(s);
 #else
-    errorf(global, "Testing --parallel event-based requires libuv");
+    errorf("Testing --parallel event-based requires libuv");
 #endif
   else
 #endif
@@ -1886,12 +1875,13 @@ static CURLcode parallel_transfers(struct GlobalConfig *global,
       s->mcode = curl_multi_poll(s->multi, NULL, 0, 1000, NULL);
       if(!s->mcode)
         s->mcode = curl_multi_perform(s->multi, &s->still_running);
-      if(!s->mcode)
-        result = check_finished(s);
     }
 
-    (void)progress_meter(global, &s->start, TRUE);
+    (void)progress_meter(s->multi, &s->start, TRUE);
   }
+
+  /* Result is the first failed transfer - if there was one. */
+  result = s->result;
 
   /* Make sure to return some kind of error if there was a multi problem */
   if(s->mcode) {
@@ -1906,8 +1896,7 @@ static CURLcode parallel_transfers(struct GlobalConfig *global,
   return result;
 }
 
-static CURLcode serial_transfers(struct GlobalConfig *global,
-                                 CURLSH *share)
+static CURLcode serial_transfers(CURLSH *share)
 {
   CURLcode returncode = CURLE_OK;
   CURLcode result = CURLE_OK;
@@ -1915,11 +1904,11 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
   bool added = FALSE;
   bool skipped = FALSE;
 
-  result = create_transfer(global, share, &added, &skipped);
+  result = create_transfer(share, &added, &skipped);
   if(result)
     return result;
   if(!added) {
-    errorf(global, "no transfer performed");
+    errorf("no transfer performed");
     return CURLE_READ_ERROR;
   }
   for(per = transfers; per;) {
@@ -1930,7 +1919,7 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
 
     start = curlx_now();
     if(!per->skip) {
-      result = pre_transfer(global, per);
+      result = pre_transfer(per);
       if(result)
         break;
 
@@ -1962,9 +1951,9 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
         result = curl_easy_perform(per->curl);
     }
 
-    returncode = post_per_transfer(global, per, result, &retry, &delay_ms);
+    returncode = post_per_transfer(per, result, &retry, &delay_ms);
     if(retry) {
-      tool_go_sleep(delay_ms);
+      curlx_wait_ms(delay_ms);
       continue;
     }
 
@@ -1974,7 +1963,7 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
     else {
       do {
         /* setup the next one just before we delete this */
-        result = create_transfer(global, share, &added, &skipped);
+        result = create_transfer(share, &added, &skipped);
         if(result) {
           returncode = result;
           bailout = TRUE;
@@ -1993,11 +1982,11 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
          milliseconds */
       timediff_t milli = curlx_timediff(curlx_now(), start);
       if(milli < global->ms_per_transfer) {
-        notef(global, "Transfer took %" CURL_FORMAT_CURL_OFF_T " ms, "
-                      "waits %ldms as set by --rate",
+        notef("Transfer took %" CURL_FORMAT_CURL_OFF_T " ms, "
+              "waits %ldms as set by --rate",
               milli, (long)(global->ms_per_transfer - milli));
         /* The transfer took less time than wanted. Wait a little. */
-        tool_go_sleep((long)(global->ms_per_transfer - milli));
+        curlx_wait_ms((long)(global->ms_per_transfer - milli));
       }
     }
   }
@@ -2006,12 +1995,12 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
     result = returncode;
 
   if(result)
-    single_transfer_cleanup(global->current);
+    single_transfer_cleanup();
 
   return result;
 }
 
-static CURLcode is_using_schannel(int *using)
+static CURLcode is_using_schannel(int *pusing)
 {
   CURLcode result = CURLE_OK;
   static int using_schannel = -1; /* -1 = not checked
@@ -2035,7 +2024,7 @@ static CURLcode is_using_schannel(int *using)
     if(result)
       return result;
   }
-  *using = using_schannel;
+  *pusing = using_schannel;
   return result;
 }
 
@@ -2043,46 +2032,69 @@ static CURLcode is_using_schannel(int *using)
  * environment-specified filename is found then check for CA bundle default
  * filename curl-ca-bundle.crt in the user's PATH.
  *
+ * If the user has set a CA cert/path or disabled peer verification (including
+ * for DoH, so completely disabled) then these locations are ignored.
+ *
  * If Schannel is the selected SSL backend then these locations are ignored.
  * We allow setting CA location for Schannel only when explicitly specified by
  * the user via CURLOPT_CAINFO / --cacert.
  */
-
 static CURLcode cacertpaths(struct OperationConfig *config)
 {
-  CURLcode result = CURLE_OUT_OF_MEMORY;
-  char *env = curl_getenv("CURL_CA_BUNDLE");
+  char *env;
+  CURLcode result;
+  int using_schannel;
+
+  if(!feature_ssl || config->cacert || config->capath ||
+     (config->insecure_ok && (!config->doh_url || config->doh_insecure_ok)))
+    return CURLE_OK;
+
+  result = is_using_schannel(&using_schannel);
+  if(result || using_schannel)
+    return result;
+
+  env = curl_getenv("CURL_CA_BUNDLE");
   if(env) {
     config->cacert = strdup(env);
     curl_free(env);
-    if(!config->cacert)
+    if(!config->cacert) {
+      result = CURLE_OUT_OF_MEMORY;
       goto fail;
+    }
   }
   else {
     env = curl_getenv("SSL_CERT_DIR");
     if(env) {
       config->capath = strdup(env);
       curl_free(env);
-      if(!config->capath)
+      if(!config->capath) {
+        result = CURLE_OUT_OF_MEMORY;
         goto fail;
+      }
     }
     env = curl_getenv("SSL_CERT_FILE");
     if(env) {
       config->cacert = strdup(env);
       curl_free(env);
-      if(!config->cacert)
+      if(!config->cacert) {
+        result = CURLE_OUT_OF_MEMORY;
         goto fail;
+      }
     }
   }
 
 #ifdef _WIN32
   if(!env) {
-#if defined(CURL_CA_SEARCH_SAFE)
+#ifdef CURL_CA_SEARCH_SAFE
     char *cacert = NULL;
     FILE *cafile = tool_execpath("curl-ca-bundle.crt", &cacert);
     if(cafile) {
-      fclose(cafile);
+      curlx_fclose(cafile);
       config->cacert = strdup(cacert);
+      if(!config->cacert) {
+        result = CURLE_OUT_OF_MEMORY;
+        goto fail;
+      }
     }
 #elif !defined(CURL_WINDOWS_UWP) && !defined(UNDER_CE) && \
   !defined(CURL_DISABLE_CA_SEARCH)
@@ -2094,13 +2106,12 @@ static CURLcode cacertpaths(struct OperationConfig *config)
 #endif
   return CURLE_OK;
 fail:
-  free(config->capath);
+  Curl_safefree(config->capath);
   return result;
 }
 
 /* setup a transfer for the given config */
-static CURLcode transfer_per_config(struct GlobalConfig *global,
-                                    struct OperationConfig *config,
+static CURLcode transfer_per_config(struct OperationConfig *config,
                                     CURLSH *share,
                                     bool *added,
                                     bool *skipped)
@@ -2110,37 +2121,18 @@ static CURLcode transfer_per_config(struct GlobalConfig *global,
 
   /* Check we have a url */
   if(!config->url_list || !config->url_list->url) {
-    helpf(tool_stderr, "(%d) no URL specified", CURLE_FAILED_INIT);
+    helpf("(%d) no URL specified", CURLE_FAILED_INIT);
     return CURLE_FAILED_INIT;
   }
 
-  /* On Windows we cannot set the path to curl-ca-bundle.crt at compile time.
-   * We look for the file in two ways:
-   * 1: look at the environment variable CURL_CA_BUNDLE for a path
-   * 2: if #1 is not found, use the Windows API function SearchPath()
-   *    to find it along the app's path (includes app's dir and CWD)
-   *
-   * We support the environment variable thing for non-Windows platforms
-   * too. Just for the sake of it.
-   */
-  if(feature_ssl &&
-     !config->cacert &&
-     !config->capath &&
-     (!config->insecure_ok || (config->doh_url && !config->doh_insecure_ok))) {
-    int using_schannel = -1;
-
-    result = is_using_schannel(&using_schannel);
-
-    /* With the addition of CAINFO support for Schannel, this search could
-     * find a certificate bundle that was previously ignored. To maintain
-     * backward compatibility, only perform this search if not using Schannel.
-     */
-    if(!result && !using_schannel)
-      result = cacertpaths(config);
-  }
-
   if(!result)
-    result = single_transfer(global, config, share, added, skipped);
+    result = cacertpaths(config);
+
+  if(!result) {
+    result = single_transfer(config, share, added, skipped);
+    if(!*added || result)
+      single_transfer_cleanup();
+  }
 
   return result;
 }
@@ -2149,16 +2141,14 @@ static CURLcode transfer_per_config(struct GlobalConfig *global,
  * 'create_transfer' gets the details and sets up a new transfer if 'added'
  * returns TRUE.
  */
-static CURLcode create_transfer(struct GlobalConfig *global,
-                                CURLSH *share,
+static CURLcode create_transfer(CURLSH *share,
                                 bool *added,
                                 bool *skipped)
 {
   CURLcode result = CURLE_OK;
   *added = FALSE;
   while(global->current) {
-    result = transfer_per_config(global, global->current, share, added,
-                                 skipped);
+    result = transfer_per_config(global->current, share, added, skipped);
     if(!result && !*added) {
       /* when one set is drained, continue to next */
       global->current = global->current->next;
@@ -2169,8 +2159,7 @@ static CURLcode create_transfer(struct GlobalConfig *global,
   return result;
 }
 
-static CURLcode run_all_transfers(struct GlobalConfig *global,
-                                  CURLSH *share,
+static CURLcode run_all_transfers(CURLSH *share,
                                   CURLcode result)
 {
   /* Save the values of noprogress and isatty to restore them later on */
@@ -2181,16 +2170,16 @@ static CURLcode run_all_transfers(struct GlobalConfig *global,
   /* Time to actually do the transfers */
   if(!result) {
     if(global->parallel)
-      result = parallel_transfers(global, share);
+      result = parallel_transfers(share);
     else
-      result = serial_transfers(global, share);
+      result = serial_transfers(share);
   }
 
   /* cleanup if there are any left */
   for(per = transfers; per;) {
     bool retry;
     long delay;
-    CURLcode result2 = post_per_transfer(global, per, result, &retry, &delay);
+    CURLcode result2 = post_per_transfer(per, result, &retry, &delay);
     if(!result)
       /* do not overwrite the original error */
       result = result2;
@@ -2209,7 +2198,7 @@ static CURLcode run_all_transfers(struct GlobalConfig *global,
   return result;
 }
 
-CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
+CURLcode operate(int argc, argv_item_t argv[])
 {
   CURLcode result = CURLE_OK;
   const char *first_arg;
@@ -2229,11 +2218,11 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
   if((argc == 1) ||
      (first_arg && strncmp(first_arg, "-q", 2) &&
       strcmp(first_arg, "--disable"))) {
-    parseconfig(NULL, global); /* ignore possible failure */
+    parseconfig(NULL, CONFIG_MAX_LEVELS); /* ignore possible failure */
 
     /* If we had no arguments then make sure a url was specified in .curlrc */
     if((argc < 2) && (!global->first->url_list)) {
-      helpf(tool_stderr, NULL);
+      helpf(NULL);
       result = CURLE_FAILED_INIT;
     }
   }
@@ -2242,7 +2231,7 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
 
   if(!result) {
     /* Parse the command line arguments */
-    ParameterError res = parse_args(global, argc, argv);
+    ParameterError res = parse_args(argc, argv);
     if(res) {
       result = CURLE_OK;
 
@@ -2254,8 +2243,7 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
 #ifdef USE_MANUAL
         hugehelp();
 #else
-        warnf(global,
-              "built-in manual was disabled at build-time");
+        warnf("built-in manual was disabled at build-time");
 #endif
       }
       /* Check if we were asked for the version information */
@@ -2267,7 +2255,7 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
       /* Check if we were asked to dump the embedded CA bundle */
       else if(res == PARAM_CA_EMBED_REQUESTED) {
 #ifdef CURL_CA_EMBED
-        printf("%s", curl_ca_embed);
+        curl_mprintf("%s", curl_ca_embed);
 #endif
       }
       else if(res == PARAM_LIBCURL_UNSUPPORTED_PROTOCOL)
@@ -2308,7 +2296,7 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
           curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_HSTS);
 
           if(global->ssl_sessions && feature_ssls_export)
-            result = tool_ssls_load(global, global->first, share,
+            result = tool_ssls_load(global->first, share,
                                     global->ssl_sessions);
 
           if(!result) {
@@ -2323,10 +2311,10 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
             global->current = global->first;
 
             /* now run! */
-            result = run_all_transfers(global, share, result);
+            result = run_all_transfers(share, result);
 
             if(global->ssl_sessions && feature_ssls_export) {
-              CURLcode r2 = tool_ssls_save(global, global->first, share,
+              CURLcode r2 = tool_ssls_save(global->first, share,
                                            global->ssl_sessions);
               if(r2 && !result)
                 result = r2;
@@ -2339,17 +2327,16 @@ CURLcode operate(struct GlobalConfig *global, int argc, argv_item_t argv[])
             easysrc_cleanup();
 
             /* Dump the libcurl code if previously enabled */
-            dumpeasysrc(global);
+            dumpeasysrc();
           }
         }
       }
       else
-        errorf(global, "out of memory");
+        errorf("out of memory");
     }
   }
 
-  varcleanup(global);
-  curl_free(global->knownhosts);
+  varcleanup();
 
   return result;
 }

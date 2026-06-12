@@ -21,27 +21,15 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
+#include "testutil.h"
 #include "memdebug.h"
-
-/* build request url */
-static char *suburl(const char *base, int i)
-{
-  return curl_maprintf("%s%.4d", base, i);
-}
 
 /*
  * Test the Client->Server ANNOUNCE functionality (PUT style)
  */
-CURLcode test(char *URL)
+static CURLcode test_lib568(const char *URL)
 {
   CURLcode res;
   CURL *curl;
@@ -69,7 +57,7 @@ CURLcode test(char *URL)
 
   test_setopt(curl, CURLOPT_URL, URL);
 
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -78,7 +66,7 @@ CURLcode test(char *URL)
   curl_free(stream_uri);
   stream_uri = NULL;
 
-  sdp = open(libtest_arg2, O_RDONLY);
+  sdp = curlx_open(libtest_arg2, O_RDONLY);
   if(sdp == -1) {
     curl_mfprintf(stderr, "can't open %s\n", libtest_arg2);
     res = TEST_ERR_MAJOR_BAD;
@@ -87,7 +75,7 @@ CURLcode test(char *URL)
   fstat(sdp, &file_info);
   close(sdp);
 
-  sdpf = fopen(libtest_arg2, "rb");
+  sdpf = curlx_fopen(libtest_arg2, "rb");
   if(!sdpf) {
     curl_mfprintf(stderr, "can't fopen %s\n", libtest_arg2);
     res = TEST_ERR_MAJOR_BAD;
@@ -106,11 +94,11 @@ CURLcode test(char *URL)
     goto test_cleanup;
 
   test_setopt(curl, CURLOPT_UPLOAD, 0L);
-  fclose(sdpf);
+  curlx_fclose(sdpf);
   sdpf = NULL;
 
   /* Make sure we can do a normal request now */
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -126,7 +114,7 @@ CURLcode test(char *URL)
 
   /* Now do a POST style one */
 
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -156,7 +144,7 @@ CURLcode test(char *URL)
   custom_headers = NULL;
 
   /* Make sure we can do a normal request now */
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -171,7 +159,7 @@ CURLcode test(char *URL)
 test_cleanup:
 
   if(sdpf)
-    fclose(sdpf);
+    curlx_fclose(sdpf);
 
   curl_free(stream_uri);
 

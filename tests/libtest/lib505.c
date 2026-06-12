@@ -21,11 +21,7 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
+#include "first.h"
 
 #include "memdebug.h"
 
@@ -36,34 +32,37 @@
  * Example based on source code provided by Erick Nuwendam. Thanks!
  */
 
-CURLcode test(char *URL)
+static CURLcode test_lib505(const char *URL)
 {
   CURL *curl;
   CURLcode res = CURLE_OK;
+  char errbuf[STRERROR_LEN];
   FILE *hd_src;
   int hd;
   struct_stat file_info;
   struct curl_slist *hl;
 
   struct curl_slist *headerlist = NULL;
-  const char *buf_1 = "RNFR 505";
-  const char *buf_2 = "RNTO 505-forreal";
+
+  static const char *buf_1 = "RNFR 505";
+  static const char *buf_2 = "RNTO 505-forreal";
 
   if(!libtest_arg2) {
     curl_mfprintf(stderr, "Usage: <url> <file-to-upload>\n");
     return TEST_ERR_USAGE;
   }
 
-  hd_src = fopen(libtest_arg2, "rb");
+  hd_src = curlx_fopen(libtest_arg2, "rb");
   if(!hd_src) {
     curl_mfprintf(stderr, "fopen failed with error (%d) %s\n",
-                  errno, strerror(errno));
+                  errno, curlx_strerror(errno, errbuf, sizeof(errbuf)));
     curl_mfprintf(stderr, "Error opening file '%s'\n", libtest_arg2);
     return TEST_ERR_MAJOR_BAD; /* if this happens things are major weird */
   }
 
   /* get the file size of the local file */
 #ifdef UNDER_CE
+  /* !checksrc! disable BANNEDFUNC 1 */
   hd = stat(libtest_arg2, &file_info);
 #else
   hd = fstat(fileno(hd_src), &file_info);
@@ -71,21 +70,21 @@ CURLcode test(char *URL)
   if(hd == -1) {
     /* can't open file, bail out */
     curl_mfprintf(stderr, "fstat() failed with error (%d) %s\n",
-                  errno, strerror(errno));
+                  errno, curlx_strerror(errno, errbuf, sizeof(errbuf)));
     curl_mfprintf(stderr, "Error opening file '%s'\n", libtest_arg2);
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
 
   if(!file_info.st_size) {
     curl_mfprintf(stderr, "File %s has zero size!\n", libtest_arg2);
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
     curl_mfprintf(stderr, "curl_global_init() failed\n");
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -94,7 +93,7 @@ CURLcode test(char *URL)
   if(!curl) {
     curl_mfprintf(stderr, "curl_easy_init() failed\n");
     curl_global_cleanup();
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
 
@@ -105,7 +104,7 @@ CURLcode test(char *URL)
     curl_mfprintf(stderr, "curl_slist_append() failed\n");
     curl_easy_cleanup(curl);
     curl_global_cleanup();
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
   headerlist = curl_slist_append(hl, buf_2);
@@ -114,7 +113,7 @@ CURLcode test(char *URL)
     curl_slist_free_all(hl);
     curl_easy_cleanup(curl);
     curl_global_cleanup();
-    fclose(hd_src);
+    curlx_fclose(hd_src);
     return TEST_ERR_MAJOR_BAD;
   }
   headerlist = hl;
@@ -147,7 +146,7 @@ test_cleanup:
   curl_slist_free_all(headerlist);
 
   /* close the local file */
-  fclose(hd_src);
+  curlx_fclose(hd_src);
 
   curl_easy_cleanup(curl);
   curl_global_cleanup();

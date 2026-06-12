@@ -12,7 +12,7 @@ FETCH
 #
 # Server-side
 <reply>
-<data>
+<data crlf="yes">
 From: me@somewhere
 To: fake@nowhere
 
@@ -33,7 +33,7 @@ imap
 --libcurl for IMAP FETCH message
 </name>
 <setenv>
-SSL_CERT_FILE=
+SSL_CERT_FILE
 </setenv>
 <command>
 'imap://%HOSTIP:%IMAPPORT/%TESTNUMBER/;MAILINDEX=1' -u user:secret --libcurl %LOGDIR/test%TESTNUMBER.c
@@ -48,7 +48,7 @@ ftp
 #
 # Verify data after the test has been "shot"
 <verify>
-<protocol>
+<protocol crlf="yes">
 A001 CAPABILITY
 A002 LOGIN user secret
 A003 SELECT %TESTNUMBER
@@ -111,6 +111,7 @@ $_ = '' if /CURLOPT_SSL_VERIFYPEER/
 $_ = '' if /CURLOPT_SSH_KNOWNHOSTS/
 $_ = '' if /CURLOPT_HTTP_VERSION/
 $_ = '' if /CURLOPT_INTERLEAVEDATA/
+$_ = '' if /CURLOPT_SSLVERSION/
 </stripfile>
 </verify>
 </testcase>

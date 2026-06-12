@@ -4,7 +4,7 @@
 
 # This workflow contains checks at the source code level only.
 
-name: Source
+name: 'Source'
 
 'on':
   push:
@@ -12,98 +12,102 @@ name: Source
       - master
       - '*/ci'
     paths-ignore:
-      - '**/*.md'
       - '.circleci/**'
       - 'appveyor.*'
+      - 'Dockerfile'
       - 'plan9/**'
       - 'tests/data/**'
-      - 'winbuild/**'
   pull_request:
     branches:
       - master
     paths-ignore:
-      - '**/*.md'
       - '.circleci/**'
       - 'appveyor.*'
+      - 'Dockerfile'
       - 'plan9/**'
       - 'tests/data/**'
-      - 'winbuild/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions: {}
 
 jobs:
   checksrc:
+    name: 'checksrc'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
-        name: checkout
 
-      - name: check
-        run: scripts/checksrc-all.sh
+      - name: 'check'
+        run: scripts/checksrc-all.pl
 
-  codespell-cmakelint-pytype-ruff:
+  linters:
+    name: 'spellcheck, linters, REUSE'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
-        name: checkout
 
-      - name: install
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: 'install prereqs'
         run: |
-          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
-          sudo apt-get -o Dpkg::Use-Pty=0 update
-          sudo rm -f /var/lib/man-db/auto-update
-          sudo apt-get -o Dpkg::Use-Pty=0 install \
-            codespell python3-pip python3-networkx python3-pydot python3-yaml \
-            python3-toml python3-markupsafe python3-jinja2 python3-tabulate \
-            python3-typing-extensions python3-libcst python3-impacket \
-            python3-websockets python3-pytest python3-filelock python3-pytest-xdist
-          python3 -m pip install --break-system-packages cmakelint==1.4.3 pytype==2024.10.11 ruff==0.11.9
+          python3 -m venv ~/venv
+          ~/venv/bin/pip --disable-pip-version-check --no-input --no-cache-dir install --progress-bar off --prefer-binary \
+            -r .github/scripts/requirements.txt \
+            -r tests/http/requirements.txt \
+            -r tests/requirements.txt
 
-      - name: spellcheck
+      - name: 'REUSE check'
         run: |
-          codespell \
-            --skip scripts/mk-ca-bundle.pl \
-            --skip src/tool_hugehelp.c \
-            --skip scripts/wcurl \
-            -I .github/scripts/codespell-ignore.txt \
-            CMake include m4 scripts src lib
+          source ~/venv/bin/activate
+          reuse lint
 
-      - name: cmakelint
-        run: scripts/cmakelint.sh
+      - name: 'codespell'
+        run: |
+          source ~/venv/bin/activate
+          codespell --version
+          .github/scripts/codespell.sh
 
-      - name: pytype
-        run: find . -name '*.py' -exec pytype -j auto -k {} +
+      - name: 'typos'
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew install typos-cli
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          typos --version
+          .github/scripts/typos.sh
 
-      - name: ruff
-        run: scripts/pythonlint.sh
+      - name: 'cmakelint'
+        run: |
+          source ~/venv/bin/activate
+          scripts/cmakelint.sh
 
-  reuse:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        with:
-          persist-credentials: false
-        name: checkout
+      - name: 'perlcheck'
+        run: |
+          scripts/perlcheck.sh
 
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@bb774aa972c2a89ff34781233d275075cbddf542 # v5
+      - name: 'pytype'
+        run: |
+          source ~/venv/bin/activate
+          find . -name '*.py' -exec pytype -j auto -k {} +
+
+      - name: 'ruff'
+        run: |
+          source ~/venv/bin/activate
+          scripts/pythonlint.sh
 
   complexity:
+    name: 'complexity'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
-        name: checkout
 
-      - name: install pmccabe
+      - name: 'install pmccabe'
         run: |
           sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get -o Dpkg::Use-Pty=0 update
@@ -111,44 +115,49 @@ jobs:
           sudo apt-get -o Dpkg::Use-Pty=0 install \
             pmccabe
 
-      - name: check complexity scores
+      - name: 'check scores'
         run: ./scripts/top-complexity
 
   miscchecks:
+    name: 'misc checks'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: 'install prereqs'
+        run: HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew install shellcheck zizmor
+
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
-        name: checkout
 
-      - name: shellcheck
-        run: .github/scripts/shellcheck.sh
+      - name: 'zizmor GHA'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          zizmor --pedantic .github/workflows/*.yml .github/dependabot.yml
 
-      - name: spacecheck
+      - name: 'shellcheck CI'
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          shellcheck --version
+          .github/scripts/shellcheck-ci.sh
+
+      - name: 'shellcheck'
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          shellcheck --version
+          .github/scripts/shellcheck.sh
+
+      - name: 'spacecheck'
         run: .github/scripts/spacecheck.pl
 
-      - name: yamlcheck
+      - name: 'yamlcheck'
         run: .github/scripts/yamlcheck.sh
 
       # we allow some extra in source code
-      - name: badwords
+      - name: 'badwords'
         run: |
+          # shellcheck disable=SC2046
           grep -Ev '(\\bwill| url | dir )' .github/scripts/badwords.txt | \
           .github/scripts/badwords.pl $(git ls-files -- src lib include)
-
-  ghacheck:
-    name: GHA analysis
-    runs-on: macos-latest
-    timeout-minutes: 1
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        with:
-          persist-credentials: false
-        name: checkout
-
-      - name: zizmor
-        run: |
-          brew install zizmor
-          zizmor --pedantic .github/workflows/*.yml

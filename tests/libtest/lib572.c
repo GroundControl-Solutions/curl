@@ -21,27 +21,15 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "test.h"
+#include "first.h"
 
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
+#include "testutil.h"
 #include "memdebug.h"
-
-/* build request url */
-static char *suburl(const char *base, int i)
-{
-  return curl_maprintf("%s%.4d", base, i);
-}
 
 /*
  * Test GET_PARAMETER: PUT, HEARTBEAT, and POST
  */
-CURLcode test(char *URL)
+static CURLcode test_lib572(const char *URL)
 {
   CURLcode res;
   CURL *curl;
@@ -64,7 +52,6 @@ CURLcode test(char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
-
   test_setopt(curl, CURLOPT_HEADERDATA, stdout);
   test_setopt(curl, CURLOPT_WRITEDATA, stdout);
   test_setopt(curl, CURLOPT_VERBOSE, 1L);
@@ -72,7 +59,7 @@ CURLcode test(char *URL)
   test_setopt(curl, CURLOPT_URL, URL);
 
   /* SETUP */
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -87,7 +74,7 @@ CURLcode test(char *URL)
   if(res)
     goto test_cleanup;
 
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -97,7 +84,7 @@ CURLcode test(char *URL)
   stream_uri = NULL;
 
   /* PUT style GET_PARAMETERS */
-  params = open(libtest_arg2, O_RDONLY);
+  params = curlx_open(libtest_arg2, O_RDONLY);
   if(params == -1) {
     curl_mfprintf(stderr, "can't open %s\n", libtest_arg2);
     res = TEST_ERR_MAJOR_BAD;
@@ -106,7 +93,7 @@ CURLcode test(char *URL)
   fstat(params, &file_info);
   close(params);
 
-  paramsf = fopen(libtest_arg2, "rb");
+  paramsf = curlx_fopen(libtest_arg2, "rb");
   if(!paramsf) {
     curl_mfprintf(stderr, "can't fopen %s\n", libtest_arg2);
     res = TEST_ERR_MAJOR_BAD;
@@ -123,11 +110,11 @@ CURLcode test(char *URL)
     goto test_cleanup;
 
   test_setopt(curl, CURLOPT_UPLOAD, 0L);
-  fclose(paramsf);
+  curlx_fclose(paramsf);
   paramsf = NULL;
 
   /* Heartbeat GET_PARAMETERS */
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -142,7 +129,7 @@ CURLcode test(char *URL)
 
   /* POST GET_PARAMETERS */
 
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -161,7 +148,7 @@ CURLcode test(char *URL)
   test_setopt(curl, CURLOPT_POSTFIELDS, NULL);
 
   /* Make sure we can do a normal request now */
-  stream_uri = suburl(URL, request++);
+  stream_uri = tutil_suburl(URL, request++);
   if(!stream_uri) {
     res = TEST_ERR_MAJOR_BAD;
     goto test_cleanup;
@@ -176,7 +163,7 @@ CURLcode test(char *URL)
 test_cleanup:
 
   if(paramsf)
-    fclose(paramsf);
+    curlx_fclose(paramsf);
 
   curl_free(stream_uri);
 

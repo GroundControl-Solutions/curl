@@ -23,6 +23,9 @@
 #
 ###########################################################################
 
+use strict;
+use warnings;
+
 my $autotools = $ARGV[0];
 my $cmake = $ARGV[1];
 
@@ -42,6 +45,8 @@ my %remove = (
     '#define HAVE_BROTLI 1' => 1,
     '#define HAVE_BROTLI_DECODE_H 1' => 1,
     '#define HAVE_DLFCN_H 1' => 1,
+    '#define HAVE_GSSAPI_GSSAPI_GENERIC_H 1' => 1,
+    '#define HAVE_GSSAPI_GSSAPI_H 1' => 1,
     '#define HAVE_GSSAPI_GSSAPI_KRB5_H 1' => 1,
     '#define HAVE_INTTYPES_H 1' => 1,
     '#define HAVE_LDAP_H 1' => 1,
@@ -53,9 +58,7 @@ my %remove = (
     '#define HAVE_LIBSSH' => 1,
     '#define HAVE_LIBSSH2 1' => 1,
     '#define HAVE_LIBSSL 1' => 1,
-    '#define HAVE_LIBWOLFSSH' => 1,
     '#define HAVE_LIBZSTD 1' => 1,
-    '#define HAVE_MSH3_H 1' => 1,
     '#define HAVE_NGHTTP2_NGHTTP2_H 1' => 1,
     '#define HAVE_NGHTTP3_NGHTTP3_H 1' => 1,
     '#define HAVE_NGTCP2_NGTCP2_CRYPTO_H 1' => 1,
@@ -73,9 +76,9 @@ my %remove = (
     '#define HAVE_STDIO_H 1' => 1,
     '#define HAVE_STDLIB_H 1' => 1,
     '#define HAVE_STRING_H 1' => 1,
+    '#define HAVE_SYS_STAT_H 1' => 1,
     '#define HAVE_SYS_XATTR_H 1' => 1,
     '#define HAVE_UNICODE_UIDNA_H 1' => 1,
-    '#define HAVE_WOLFSSH_SSH_H 1' => 1,
     '#define HAVE_WOLFSSL_SET_QUIC_USE_LEGACY_CODEPOINT 1' => 1,
     '#define HAVE_ZSTD 1' => 1,
     '#define HAVE_ZSTD_H 1' => 1,
