@@ -13,7 +13,8 @@
       "commitMessagePrefix": "GHA: ",
       "labels": [
         "CI"
-      ]
+      ],
+      "enabled": false
     },
     {
       "matchUpdateTypes": [
@@ -21,7 +22,7 @@
         "pinDigest",
         "digest"
       ],
-      "commitMessagePrefix": "CI: ",
+      "commitMessagePrefix": "GHA: ",
       "labels": [
         "CI"
       ]
@@ -30,7 +31,7 @@
       "matchManagers": [
         "custom.regex"
       ],
-      "commitMessagePrefix": "CI: ",
+      "commitMessagePrefix": "GHA: ",
       "labels": [
         "CI"
       ]
@@ -45,11 +46,12 @@
       "enabled": false
     },
     {
-      "description": "Schedule CodeQL updates on the 10th of each month",
+      "description": "Schedule package updates on the 10th of each month",
       "matchPackageNames": [
-        "/codeql/i"
+        "/codeql/i",
+        "/ruff/i"
       ],
-      "groupName": "CodeQL",
+      "groupName": "monthly updates by name",
       "schedule": [
         "* * 10 * *"
       ]
@@ -59,7 +61,7 @@
       "matchSourceUrls": [
         "**/awslabs/**"
       ],
-      "groupName": "monthly updates",
+      "groupName": "monthly updates by URL",
       "schedule": [
         "* * 10 * *"
       ]
@@ -69,18 +71,8 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/.circleci/config.yml/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?( extractVersion=(?<extractVersion>.+?))?( registryUrl=(?<registryUrl>.*?))?\\s.*?_VER=(?<currentValue>.*)\\s"
-      ],
-      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
-      "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^v?(?<version>.+)${{/if}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^.github/workflows/.*\\.yml$/"
+        "/^\\.circleci/config\\.yml/",
+        "/^\\.github/workflows/.*\\.yml$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?( extractVersion=(?<extractVersion>.+?))?( registryUrl=(?<registryUrl>.*?))?\\s.*?_VERSION:\\s*(?<currentValue>.*)\\s"
@@ -91,21 +83,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^.github/workflows/linux.yml$/",
-        "/^.github/workflows/http3-linux.yml$/"
-      ],
-      "matchStrings": [
-        "OPENSSL_VERSION: (?<currentValue>.*)\\s"
-      ],
-      "datasourceTemplate": "github-tags",
-      "depNameTemplate": "openssl/openssl",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^openssl-(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^.github/workflows/linux.yml$/"
+        "/^\\.github/workflows/linux\\.yml$/"
       ],
       "matchStrings": [
         "OPENLDAP_VERSION: (?<currentValue>.*)\\s"
