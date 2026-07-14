@@ -22,13 +22,7 @@
 #
 ###########################################################################
 
-cmake_minimum_required(VERSION 3.7...3.18 FATAL_ERROR)
-if(POLICY CMP0042)
-    cmake_policy(SET CMP0042 NEW)
-endif()
-if(POLICY CMP0068)
-    cmake_policy(SET CMP0068 NEW)
-endif()
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 message(STATUS "Using CMake version ${CMAKE_VERSION}")
 
 # Collect command-line arguments for buildinfo.txt.
