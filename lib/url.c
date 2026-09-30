@@ -374,9 +374,6 @@ void Curl_init_userdefined(struct Curl_easy *data)
   set->doh_verifyhost = TRUE;
   set->doh_verifypeer = TRUE;
 #endif
-#ifdef _WIN32
-  set->ssl.revoke_best_effort = TRUE;
-#endif
 #ifdef USE_SSH
   /* defaults to any auth type */
   set->ssh_auth_types = CURLSSH_AUTH_DEFAULT;

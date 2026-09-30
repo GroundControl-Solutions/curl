@@ -110,6 +110,9 @@ void Curl_ssl_config_init(struct ssl_primary_config *sslc)
   sslc->verifypeer = TRUE;
   sslc->verifyhost = TRUE;
   sslc->cache_session = TRUE; /* caching by default */
+#ifdef _WIN32
+  sslc->ssl_options = CURLSSLOPT_REVOKE_BEST_EFFORT;
+#endif
 }
 
 void Curl_ssl_config_cleanup(struct ssl_primary_config *sslc)
